@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
 	"gonum.org/v1/gonum/mat"
@@ -40,6 +39,9 @@ func (schema Schema) read_partitioned_csv(filename string, variants []Variant) (
 			query := zip(header, row)
 
 			partition_idx := schema.partition_number(query, variant.Name)
+			if partition_idx < 0 {
+				continue
+			}
 			label2partition[vid] = partition_idx
 			partition2records[partition_idx] = append(partition2records[partition_idx], Record{
 				Label:     row[id_num],
@@ -343,13 +345,9 @@ func (schema Schema) partition_number(query map[string]string, variant string) i
 	}
 	filters[0] = variant
 	partition_key := strings.Join(filters, "~")
-	var partition_idx int
-	found := false
-	for !found {
-		partition_idx, found = schema.PartitionMap[partition_key]
-		if !found {
-			time.Sleep(1 * time.Millisecond)
-		}
+	partition_idx, found := schema.PartitionMap[partition_key]
+	if !found {
+		return -1
 	}
 	return partition_idx
 }
