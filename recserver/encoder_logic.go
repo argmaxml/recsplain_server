@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
-	"github.com/bluele/gcache"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -406,12 +405,21 @@ func (schema Schema) reconstruct(partitioned_records map[int][]Record, id int64,
 	return reconstructed
 }
 
-func faiss_index_from_cache(cache gcache.Cache, index int) (faiss.Index, error) {
-	faiss_interface, err := cache.Get(index)
-	if err != nil {
-		return nil, err
+func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
+	if c.useCache {
+		faiss_interface, err := c.cache.Get(index)
+		if err != nil {
+			return nil, err
+		}
+		return faiss_interface.(faiss.Index), nil
+	} else {
+		ret := c.array[index]
+		var err error
+		if ret == nil {
+			err = errors.New(fmt.Sprintf("Index %d not found", index))
+		}
+		return ret, err
 	}
-	return faiss_interface.(faiss.Index), nil
 }
 
 func random_variant(variants []Variant) string {

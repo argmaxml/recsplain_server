@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -17,7 +18,7 @@ import (
 
 const port = 8088
 
-func start_server(schema Schema, variants []Variant, indices gcache.Cache, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
+func start_server(schema Schema, variants []Variant, indices IndexCache, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
@@ -116,7 +117,7 @@ func start_server(schema Schema, variants []Variant, indices gcache.Cache, item_
 			encoded = schema.encode(payload.Query)
 		}
 		//TODO: Resolve code duplication (1)
-		faiss_index, err = faiss_index_from_cache(indices, partition_idx)
+		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
 		if err != nil {
 			return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
 		}
@@ -207,7 +208,7 @@ func start_server(schema Schema, variants []Variant, indices gcache.Cache, item_
 		}
 
 		//TODO: Resolve code duplication (2)
-		faiss_index, err = faiss_index_from_cache(indices, partition_idx)
+		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
 		if err != nil {
 			return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
 		}
@@ -281,24 +282,39 @@ func main() {
 		fmt.Println(err)
 	}
 
-	indices := gcache.New(32).
-		LRU().
-		LoaderFunc(func(key interface{}) (interface{}, error) {
-			ind, err := faiss.ReadIndex(fmt.Sprintf("%s/indices/%d", base_dir, key), 0)
-			return *ind, err
-		}).
-		EvictedFunc(func(key, value interface{}) {
-			value.(faiss.Index).Delete()
-		}).
-		Build()
+	//TODO: Read from CLI
+	var useCache bool = false
+	flag.BoolVar(&useCache, "cache", false, "use cache")
+	flag.Parse()
 
-	// indices := make([]faiss.IndexImpl, len(partitions))
-	// indices := make([]faiss.Index, len(partitions))
+	var cached_indices gcache.Cache
+	var indices []faiss.Index
+
+	if useCache {
+		cached_indices = gcache.New(32).
+			LFU().
+			LoaderFunc(func(key interface{}) (interface{}, error) {
+				ind, err := faiss.ReadIndex(fmt.Sprintf("%s/indices/%d", base_dir, key), 0)
+				return *ind, err
+			}).
+			EvictedFunc(func(key, value interface{}) {
+				value.(faiss.Index).Delete()
+			}).
+			Build()
+	} else {
+		indices = make([]faiss.Index, len(schema.Partitions))
+		for i, _ := range schema.Partitions {
+			indices[i], err = faiss.ReadIndex(fmt.Sprintf("%s/indices/%d", base_dir, i), 0)
+			if err != nil {
+				fmt.Println(err)
+				indices[i] = nil
+			}
+		}
+	}
 
 	var partitioned_records map[int][]Record
 	var user_data map[string][]string
 
-	//TODO: Read from CLI
 	item_lookup := ItemLookup{
 		id2label:        make([]string, 0),
 		label2id:        make(map[string]int),
@@ -322,6 +338,10 @@ func main() {
 			go poll_endpoint(fmt.Sprintf("http://localhost:%d/reload_"+src.Record, port), src.RefreshRate)
 		}
 	}
-
-	start_server(schema, variants, indices, item_lookup, partitioned_records, user_data)
+	index_dict := IndexCache{
+		cache:    cached_indices,
+		array:    indices,
+		useCache: useCache,
+	}
+	start_server(schema, variants, index_dict, item_lookup, partitioned_records, user_data)
 }

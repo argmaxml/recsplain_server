@@ -1,6 +1,10 @@
 package main
 
-import "gonum.org/v1/gonum/mat"
+import (
+	"github.com/DataIntelligenceCrew/go-faiss"
+	"github.com/bluele/gcache"
+	"gonum.org/v1/gonum/mat"
+)
 
 type Schema struct {
 	IdCol          string    `json:"id_col"`
@@ -82,4 +86,10 @@ type Variant struct {
 	Name       string             `json:"name"`
 	Percentage float64            `json:"percentage"`
 	Weights    map[string]float64 `json:"weights"`
+}
+
+type IndexCache struct {
+	cache    gcache.Cache
+	array    []faiss.Index
+	useCache bool
 }
