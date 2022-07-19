@@ -419,8 +419,11 @@ func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
 		}
 		return faiss_interface.(faiss.Index), nil
 	} else {
-		ret := c.array[index]
 		var err error
+		if index < 0 {
+			err = errors.New(fmt.Sprintf("Index %d not found", index))
+		}
+		ret := c.array[index]
 		if ret == nil {
 			err = errors.New(fmt.Sprintf("Index %d not found", index))
 		}
