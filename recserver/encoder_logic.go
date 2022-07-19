@@ -406,9 +406,12 @@ func (schema Schema) reconstruct(partitioned_records map[int][]Record, id int64,
 	return reconstructed
 }
 
-func faiss_index_from_cache(cache gcache.Cache, index int) faiss.Index {
-	faiss_interface, _ := cache.Get(index)
-	return faiss_interface.(faiss.Index)
+func faiss_index_from_cache(cache gcache.Cache, index int) (faiss.Index, error) {
+	faiss_interface, err := cache.Get(index)
+	if err != nil {
+		return nil, err
+	}
+	return faiss_interface.(faiss.Index), nil
 }
 
 func random_variant(variants []Variant) string {

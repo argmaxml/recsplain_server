@@ -116,7 +116,10 @@ func start_server(schema Schema, variants []Variant, indices gcache.Cache, item_
 			encoded = schema.encode(payload.Query)
 		}
 		//TODO: Resolve code duplication (1)
-		faiss_index = faiss_index_from_cache(indices, partition_idx)
+		faiss_index, err = faiss_index_from_cache(indices, partition_idx)
+		if err != nil {
+			return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
+		}
 		distances, ids, err := faiss_index.Search(encoded, int64(k))
 		if err != nil {
 			log.Fatal(err)
@@ -204,7 +207,10 @@ func start_server(schema Schema, variants []Variant, indices gcache.Cache, item_
 		}
 
 		//TODO: Resolve code duplication (2)
-		faiss_index = faiss_index_from_cache(indices, partition_idx)
+		faiss_index, err = faiss_index_from_cache(indices, partition_idx)
+		if err != nil {
+			return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
+		}
 		distances, ids, err := faiss_index.Search(user_vec, int64(k))
 		if err != nil {
 			log.Fatal(err)
