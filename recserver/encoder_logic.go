@@ -412,6 +412,11 @@ func (schema Schema) reconstruct(partitioned_records map[int][]Record, id int64,
 }
 
 func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
+	var err error
+	if index < 0 {
+		err = errors.New(fmt.Sprintf("Index %d not found", index))
+		return nil, err
+	}
 	if c.useCache {
 		faiss_interface, err := c.cache.Get(index)
 		if err != nil {
@@ -419,10 +424,6 @@ func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
 		}
 		return faiss_interface.(faiss.Index), nil
 	} else {
-		var err error
-		if index < 0 {
-			err = errors.New(fmt.Sprintf("Index %d not found", index))
-		}
 		ret := c.array[index]
 		if ret == nil {
 			err = errors.New(fmt.Sprintf("Index %d not found", index))
