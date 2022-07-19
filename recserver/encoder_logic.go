@@ -347,7 +347,9 @@ func (schema Schema) partition_number(query map[string]string, variant string) i
 	found := false
 	for !found {
 		partition_idx, found = schema.PartitionMap[partition_key]
-		time.Sleep(1 * time.Millisecond)
+		if !found {
+			time.Sleep(1 * time.Millisecond)
+		}
 	}
 	return partition_idx
 }

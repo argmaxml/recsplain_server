@@ -289,6 +289,24 @@ func main() {
 
 	var cached_indices gcache.Cache
 	var indices []faiss.Index
+	var partitioned_records map[int][]Record
+	var user_data map[string][]string
+
+	item_lookup := ItemLookup{
+		id2label:        make([]string, 0),
+		label2id:        make(map[string]int),
+		label2partition: make(map[string]int),
+	}
+	partitioned_records, item_lookup, err = schema.pull_item_data(variants)
+	if err != nil {
+		log.Fatal(err)
+	}
+	user_data, err = schema.pull_user_data()
+	if err != nil {
+		log.Println(err)
+	}
+
+	schema.index_partitions(partitioned_records)
 
 	if useCache {
 		cached_indices = gcache.New(32).
@@ -311,25 +329,6 @@ func main() {
 			}
 		}
 	}
-
-	var partitioned_records map[int][]Record
-	var user_data map[string][]string
-
-	item_lookup := ItemLookup{
-		id2label:        make([]string, 0),
-		label2id:        make(map[string]int),
-		label2partition: make(map[string]int),
-	}
-	partitioned_records, item_lookup, err = schema.pull_item_data(variants)
-	if err != nil {
-		log.Fatal(err)
-	}
-	user_data, err = schema.pull_user_data()
-	if err != nil {
-		log.Println(err)
-	}
-
-	schema.index_partitions(partitioned_records)
 
 	// Poll for changes:
 	for _, src := range schema.Sources {
