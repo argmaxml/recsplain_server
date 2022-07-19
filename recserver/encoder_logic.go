@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
 	"gonum.org/v1/gonum/mat"
@@ -342,7 +343,12 @@ func (schema Schema) partition_number(query map[string]string, variant string) i
 	}
 	filters[0] = variant
 	partition_key := strings.Join(filters, "~")
-	partition_idx := schema.PartitionMap[partition_key]
+	var partition_idx int
+	found := false
+	for !found {
+		partition_idx, found = schema.PartitionMap[partition_key]
+		time.Sleep(1 * time.Millisecond)
+	}
 	return partition_idx
 }
 
