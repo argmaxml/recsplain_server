@@ -282,7 +282,7 @@ func main() {
 	}
 
 	indices := gcache.New(32).
-		LFU().
+		LRU().
 		LoaderFunc(func(key interface{}) (interface{}, error) {
 			ind, err := faiss.ReadIndex(fmt.Sprintf("%s/indices/%d", base_dir, key), 0)
 			return *ind, err
