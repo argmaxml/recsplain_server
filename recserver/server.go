@@ -91,6 +91,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	app.Post("/item_query/:k?", func(c *fiber.Ctx) error {
 		payload := struct {
 			ItemId  string            `json:"id"`
+			UserId  string            `json:"user_id"`
 			Query   map[string]string `json:"query"`
 			Explain bool              `json:"explain"`
 			Variant string            `json:"variant"`
@@ -115,7 +116,12 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
 		}
 		if payload.Variant == "" {
-			variant = random_variant(variants)
+			if payload.UserId == "" {
+				variant = random_variant(variants)
+			} else {
+				//TODO: implemet stickiness with hash and delete this line
+				variant = random_variant(variants)
+			}
 		} else {
 			variant = payload.Variant
 		}
