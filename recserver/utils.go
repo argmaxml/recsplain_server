@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log"
 	"math/rand"
@@ -185,4 +186,8 @@ func poll_endpoint(url string, seconds int64) {
 		resp, _ := http.Get(url)
 		fmt.Println("Polling ", url, " at ", t, " status: ", resp.Status)
 	}
+}
+
+func hash_string(s string, max_int int) int {
+	return int(crc32.ChecksumIEEE([]byte(s))) % max_int
 }
