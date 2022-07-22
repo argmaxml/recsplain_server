@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
 	"github.com/bluele/gcache"
@@ -104,6 +106,10 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		var partition_idx int
 		var encoded []float32
 		var variant string
+		if payload.Variant == "random" {
+			partition_idx = schema.partition_number(payload.Query, "")
+			return c.JSON(randomResponse(partitioned_records, partition_idx, k))
+		}
 		if payload.Variant == "popular" {
 			partition_idx = schema.partition_number(payload.Query, "")
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
@@ -157,6 +163,10 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			k = 2
 		}
 		var variant string
+		if payload.Variant == "random" {
+			partition_idx := schema.partition_number(payload.Filters, "")
+			return c.JSON(randomResponse(partitioned_records, partition_idx, k))
+		}
 		if payload.Variant == "popular" {
 			partition_idx := schema.partition_number(payload.Filters, "")
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
@@ -264,6 +274,38 @@ func explanationResponse(schema Schema, distances []float32, ids []int64, explai
 		Explanations: retrieved,
 		Variant:      variant,
 		Error:        "",
+		Timestamp:    time.Now().Unix(),
+	}
+}
+
+func randomResponse(partitioned_records map[int][]Record, partition_idx int, k int) QueryRetVal {
+	labels := make([]string, len(partitioned_records))
+	for i, record := range partitioned_records[partition_idx] {
+		labels[i] = record.Label
+	}
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(labels), func(i, j int) {
+		labels[i], labels[j] = labels[j], labels[i]
+	})
+	random_items := labels[:k]
+
+	retrieved := make([]Explanation, 0)
+	for _, item_id := range random_items {
+		retrieved = append(retrieved, Explanation{
+			Label:     item_id,
+			Distance:  0,
+			Breakdown: nil,
+		})
+		k--
+		if k <= 0 {
+			break
+		}
+	}
+	return QueryRetVal{
+		Explanations: retrieved,
+		Variant:      "random",
+		Error:        "",
+		Timestamp:    time.Now().Unix(),
 	}
 }
 
@@ -284,6 +326,7 @@ func fallbackResponse(popular_items map[int][]string, message string, partition_
 		Explanations: retrieved,
 		Variant:      "popular",
 		Error:        message,
+		Timestamp:    time.Now().Unix(),
 	}
 }
 
@@ -344,7 +387,6 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 
 	}
 	return popular_items
-
 }
 
 func main() {

@@ -61,6 +61,7 @@ type QueryRetVal struct {
 	Explanations []Explanation `json:"explanations"`
 	Variant      string        `json:"variant"`
 	Error        string        `json:"error"`
+	Timestamp    int64         `json:"timestamp"`
 }
 
 type ItemLookup struct {
