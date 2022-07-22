@@ -60,6 +60,7 @@ type Explanation struct {
 type QueryRetVal struct {
 	Explanations []Explanation `json:"explanations"`
 	Variant      string        `json:"variant"`
+	Error        string        `json:"error"`
 }
 
 type ItemLookup struct {

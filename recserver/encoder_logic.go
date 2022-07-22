@@ -184,7 +184,12 @@ func (schema Schema) read_user_csv(filename string, history_col string) (map[str
 	user_data := make(map[string][]string)
 	for _, row := range data {
 		user_id := row[id_num]
-		user_data[user_id] = strings.Split(row[history_num], ",")
+		history_str := strings.ReplaceAll(strings.ReplaceAll(row[history_num], "]", ""), "[", "")
+		parts := strings.Split(history_str, ",")
+		for idx, part := range parts {
+			parts[idx] = strings.ReplaceAll(strings.TrimSpace(part), "\"", "")
+		}
+		user_data[user_id] = parts
 	}
 
 	return user_data, nil

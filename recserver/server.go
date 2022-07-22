@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,9 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
+
+	var popular_items map[int][]string
+	popular_items = calc_popular_items(partitioned_records, user_data)
 
 	var faiss_index faiss.Index
 	// GET /api/register
@@ -48,6 +52,7 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 
 	app.Get("/reload_items", func(c *fiber.Ctx) error {
 		partitioned_records, item_lookup, _ = schema.pull_item_data(variants)
+		popular_items = calc_popular_items(partitioned_records, user_data)
 		os.RemoveAll("indices")
 		schema.index_partitions(partitioned_records)
 		return c.SendString("{\"Status\": \"OK\"}")
@@ -62,6 +67,7 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 		if err != nil {
 			return c.SendString(err.Error())
 		}
+		popular_items = calc_popular_items(partitioned_records, user_data)
 		return c.SendString("{\"Status\": \"OK\"}")
 	})
 
@@ -91,7 +97,7 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 		}{}
 
 		if err := c.BodyParser(&payload); err != nil {
-			return err
+			return c.JSON(fallbackResponse(popular_items, "Cannot parse payload", -1, 10))
 		}
 		k, err := strconv.Atoi(c.Params("k"))
 		if err != nil {
@@ -100,6 +106,10 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 		var partition_idx int
 		var encoded []float32
 		var variant string
+		if payload.Variant == "popular" {
+			partition_idx = schema.partition_number(payload.Query, "")
+			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
+		}
 		if payload.Variant == "" {
 			variant = random_variant(variants)
 		} else {
@@ -107,50 +117,28 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 		}
 		if payload.ItemId != "" {
 			id := int64(item_lookup.label2id[variant+"~"+payload.ItemId])
-			partition_idx = item_lookup.label2partition[variant+"~"+payload.ItemId]
+			var found bool
+			partition_idx, found = item_lookup.label2partition[variant+"~"+payload.ItemId]
+			if !found {
+				return c.JSON(fallbackResponse(popular_items, "Item not found", -1, k))
+			}
 			encoded = schema.reconstruct(partitioned_records, id, partition_idx)
 			if encoded == nil {
-				return c.SendString("{\"Status\": \"Not Found\"}")
+				return c.JSON(fallbackResponse(popular_items, "Item could not be reconstructed", partition_idx, k))
 			}
 		} else {
 			partition_idx = schema.partition_number(payload.Query, variant)
 			encoded = schema.encode(payload.Query)
 		}
-		//TODO: Resolve code duplication (1)
 		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
 		if err != nil {
-			return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
+			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
 		distances, ids, err := faiss_index.Search(encoded, int64(k))
 		if err != nil {
-			log.Fatal(err)
+			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
-		retrieved := make([]Explanation, 0)
-		for i, id := range ids {
-			if id == -1 {
-				continue
-			}
-			next_result := Explanation{
-				Label:    strings.SplitN(item_lookup.id2label[int(id)], "~", 2)[1],
-				Distance: distances[i],
-			}
-			if (payload.Explain) && (partitioned_records != nil) {
-				reconstructed := schema.reconstruct(partitioned_records, id, partition_idx)
-				if reconstructed != nil {
-					total_distance, breakdown := schema.componentwise_distance(encoded, reconstructed)
-					next_result.Distance = total_distance
-					next_result.Breakdown = breakdown
-				}
-			}
-			retrieved = append(retrieved, next_result)
-		}
-		if variant == "" {
-			variant = "default"
-		}
-		retval := QueryRetVal{
-			Explanations: retrieved,
-			Variant:      variant,
-		}
+		retval := explanationResponse(schema, distances, ids, payload.Explain, variant, partitioned_records, partition_idx, encoded, item_lookup)
 		return c.JSON(retval)
 	})
 
@@ -164,30 +152,37 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 		}{}
 
 		if err := c.BodyParser(&payload); err != nil {
-			return err
+			return c.JSON(fallbackResponse(popular_items, "Cannot parse payload", -1, 10))
+		}
+		k, err := strconv.Atoi(c.Params("k"))
+		if err != nil {
+			k = 2
 		}
 		var variant string
+		if payload.Variant == "popular" {
+			partition_idx := schema.partition_number(payload.Filters, "")
+			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
+		}
 		if payload.Variant == "" {
 			variant = random_variant(variants)
 		} else {
 			variant = payload.Variant
 		}
 		partition_idx := schema.partition_number(payload.Filters, variant)
-		k, err := strconv.Atoi(c.Params("k"))
-		if err != nil {
-			k = 2
-		}
 		item_vecs := make([][]float32, 1)
 		item_vecs[0] = make([]float32, schema.Dim) // zero_vector
 
 		if payload.UserId != "" {
 			//Override user history from the id, if provided
 			if user_data == nil {
-				return c.SendString("User history not available in sources list")
+				return c.JSON(fallbackResponse(popular_items, "User history not available in sources list", partition_idx, k))
 			}
 			payload.History = user_data[payload.UserId]
 		}
-
+		// If user had no history
+		if len(payload.History) == 0 {
+			return c.JSON(fallbackResponse(popular_items, "User has no history", partition_idx, k))
+		}
 		for _, item_id := range payload.History {
 			id := int64(item_lookup.label2id[variant+"~"+item_id])
 			if id == -1 {
@@ -199,7 +194,6 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 			}
 			item_vecs = append(item_vecs, reconstructed)
 		}
-		//TODO: Account for cold start
 		user_vec := make([]float32, schema.Dim)
 		for _, item_vec := range item_vecs {
 			for i := range user_vec {
@@ -207,41 +201,15 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 			}
 		}
 
-		//TODO: Resolve code duplication (2)
 		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
 		if err != nil {
-			return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
+			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
 		distances, ids, err := faiss_index.Search(user_vec, int64(k))
 		if err != nil {
-			log.Fatal(err)
+			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
-		retrieved := make([]Explanation, 0)
-		for i, id := range ids {
-			if id == -1 {
-				continue
-			}
-			next_result := Explanation{
-				Label:    strings.SplitN(item_lookup.id2label[int(id)], "~", 2)[1],
-				Distance: distances[i],
-			}
-			if (payload.Explain) && (partitioned_records != nil) {
-				reconstructed := schema.reconstruct(partitioned_records, id, partition_idx)
-				if reconstructed != nil {
-					total_distance, breakdown := schema.componentwise_distance(user_vec, reconstructed)
-					next_result.Distance = total_distance
-					next_result.Breakdown = breakdown
-				}
-			}
-			retrieved = append(retrieved, next_result)
-		}
-		if variant == "" {
-			variant = "default"
-		}
-		retval := QueryRetVal{
-			Explanations: retrieved,
-			Variant:      variant,
-		}
+		retval := explanationResponse(schema, distances, ids, payload.Explain, variant, partitioned_records, partition_idx, user_vec, item_lookup)
 		return c.JSON(retval)
 	})
 
@@ -271,6 +239,116 @@ func start_server(schema Schema, variants []Variant, indices IndexCache, item_lo
 	log.Fatal(app.Listen(fmt.Sprintf(":%d", port)))
 }
 
+func explanationResponse(schema Schema, distances []float32, ids []int64, explain bool, variant string, partitioned_records map[int][]Record, partition_idx int, vec []float32, item_lookup ItemLookup) QueryRetVal {
+	retrieved := make([]Explanation, 0)
+	for i, id := range ids {
+		if id == -1 {
+			continue
+		}
+		next_result := Explanation{
+			Label:    strings.SplitN(item_lookup.id2label[int(id)], "~", 2)[1],
+			Distance: distances[i],
+		}
+		if (explain) && (partitioned_records != nil) {
+			reconstructed := schema.reconstruct(partitioned_records, id, partition_idx)
+			if reconstructed != nil {
+				total_distance, breakdown := schema.componentwise_distance(vec, reconstructed)
+				next_result.Distance = total_distance
+				next_result.Breakdown = breakdown
+			}
+		}
+		retrieved = append(retrieved, next_result)
+	}
+	if variant == "" {
+		variant = "default"
+	}
+	return QueryRetVal{
+		Explanations: retrieved,
+		Variant:      variant,
+		Error:        "",
+	}
+}
+
+func fallbackResponse(popular_items map[int][]string, message string, partition_idx int, k int) QueryRetVal {
+	retrieved := make([]Explanation, 0)
+	for _, item_id := range popular_items[partition_idx] {
+		retrieved = append(retrieved, Explanation{
+			Label:     item_id,
+			Distance:  0,
+			Breakdown: nil,
+		})
+		k--
+		if k <= 0 {
+			break
+		}
+	}
+	return QueryRetVal{
+		Explanations: retrieved,
+		Variant:      "popular",
+		Error:        message,
+	}
+}
+
+func calc_popular_items(partitioned_records map[int][]Record, user_data map[string][]string) map[int][]string {
+	if user_data == nil {
+		//No user data, so no popular items - return something
+		ret := make(map[int][]string)
+		ret[0] = make([]string, 0)
+		for idx, record := range partitioned_records[0] {
+			ret[0] = append(ret[0], record.Label)
+			if idx > 100 {
+				break
+			}
+		}
+		//for partition error
+		ret[-1] = ret[0]
+		return ret
+	}
+	popular_items := make(map[int][]string)
+	counter := make(map[string]int)
+	for _, items := range user_data {
+		for _, item := range items {
+			counter[item]++
+		}
+	}
+	//sort by count
+	sorted_items := make([]string, 0, len(counter))
+	for k := range counter {
+		sorted_items = append(sorted_items, k)
+	}
+	sort.Strings(sorted_items)
+	// reverse sorted_items
+	for i, j := 0, len(sorted_items)-1; i < j; i, j = i+1, j-1 {
+		sorted_items[i], sorted_items[j] = sorted_items[j], sorted_items[i]
+	}
+	popular_items[-1] = sorted_items[:100]
+
+	for partition_idx, records := range partitioned_records {
+		popular_items[partition_idx] = make([]string, 0)
+		n := 100
+		for _, item := range sorted_items {
+			found_in_partition := false
+			for _, record := range records {
+				if record.Label == item {
+					found_in_partition = true
+					break
+				}
+			}
+			if !found_in_partition {
+				continue
+			}
+			popular_items[partition_idx] = append(popular_items[partition_idx], item)
+			n--
+			if n == 0 {
+				break
+			}
+		}
+
+	}
+	return popular_items
+
+}
+
 func main() {
 	base_dir := "."
 	if len(os.Args) > 1 {
@@ -283,8 +361,8 @@ func main() {
 	}
 
 	//TODO: Read from CLI
-	var useCache bool = false
-	flag.BoolVar(&useCache, "cache", false, "use cache")
+	var useCache bool = true
+	flag.BoolVar(&useCache, "cache", true, "use cache")
 	flag.Parse()
 
 	var cached_indices gcache.Cache
