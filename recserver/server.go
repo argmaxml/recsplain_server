@@ -17,9 +17,7 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-const port = 8088
-
-func start_server(schema Schema, variants []Variant, indices IndexCache, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
+func start_server(port int, schema Schema, variants []Variant, indices IndexCache, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
@@ -350,20 +348,18 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 }
 
 func main() {
-	base_dir := "."
-	if len(os.Args) > 1 {
-		base_dir = os.Args[1]
-	}
+	var useCache bool = true
+	var port int
+	var base_dir string
+	flag.BoolVar(&useCache, "cache", true, "use cache")
+	flag.IntVar(&port, "port", 8008, "port to listen on")
+	flag.StringVar(&base_dir, "dir", ".", "Base directory for data")
+	flag.Parse()
 
 	schema, variants, err := read_schema(base_dir+"/schema.json", base_dir+"/variants.json")
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
-
-	//TODO: Read from CLI
-	var useCache bool = true
-	flag.BoolVar(&useCache, "cache", true, "use cache")
-	flag.Parse()
 
 	var cached_indices gcache.Cache
 	var indices []faiss.Index
@@ -420,5 +416,5 @@ func main() {
 		array:    indices,
 		useCache: useCache,
 	}
-	start_server(schema, variants, index_dict, item_lookup, partitioned_records, user_data)
+	start_server(port, schema, variants, index_dict, item_lookup, partitioned_records, user_data)
 }
