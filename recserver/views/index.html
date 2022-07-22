@@ -117,6 +117,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
                     <div class="form-group">
                         <label for="item_id">Item Id</label>
                         <input type="text" id="item_id" name="id" class="form-control" placeholder="Id">
+                        <input type="text" id="user_id_i" name="user_id" class="form-control" placeholder="User Id">
                         <a class="btn btn-primary" data-bs-toggle="collapse" href="#collapse_item" role="button" aria-expanded="false" aria-controls="collapse_item">
                             Manually enter item
                           </a>
@@ -153,7 +154,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
                             Manually enter user history
                           </a>
                     </div>
-                    <div class="collapse" id="collapse_item">
+                    <div class="collapse" id="collapse_user">
                         <div class="form-group">
                             <label for="user_history">Item history (one item per row)</label>
                             <input type="text" name="history[]" class="form-control">
