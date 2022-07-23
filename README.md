@@ -1,5 +1,5 @@
-# Recsplain lite
-A trimmed down, scalable version of [Recsplain](https://github.com/argmaxml/recsplain) written in Go.
+# Recsplain Server lite
+A trimmed down, scalable version of [Recsplain](https://github.com/argmaxml/recsplain)'s server written in Go.
 
 For more details on Recplain, See our [Getting Started Guide](https://recsplain.readthedocs.io/en/latest/)
 ## Differences from Recsplain
