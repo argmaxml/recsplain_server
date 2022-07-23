@@ -28,11 +28,18 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	popular_items = calc_popular_items(partitioned_records, user_data)
 
 	var faiss_index faiss.Index
-	// GET /api/register
 	app.Get("/npy/*", func(c *fiber.Ctx) error {
 		m := read_npy(c.Params("*") + ".npy")
 		msg := fmt.Sprintf("data = %v\n", mat.Formatted(m, mat.Prefix("       ")))
 		return c.SendString(msg)
+	})
+	app.Get("/json/*", func(c *fiber.Ctx) error {
+		filename := c.Params("*") + ".json"
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			return c.SendString("{\"Status\": \"Error\"}")
+		}
+		return c.SendString("{\"Status\": \"OK\", \"Data\": " + string(content) + "}")
 	})
 
 	app.Get("/partitions", func(c *fiber.Ctx) error {
@@ -71,14 +78,22 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		return c.SendString("{\"Status\": \"OK\"}")
 	})
 
-	app.Get("/variants", func(c *fiber.Ctx) error {
-		var err error
-		filename := "variants.json"
-		content, err := os.ReadFile(filename)
-		if err != nil {
-			return c.SendString("{\"Status\": \"Error\"}")
+	app.Get("/user/*", func(c *fiber.Ctx) error {
+		user_id := c.Params("*")
+		user_history, found := user_data[user_id]
+		if !found {
+			return c.SendString("{\"Status\": \"User not found\"}")
 		}
-		return c.SendString("{\"Status\": \"OK\", \"Data\": " + string(content) + "}")
+		response := struct {
+			History []string `json:"history"`
+			Variant string   `json:"variant"`
+			Hash    int      `json:"hash"`
+		}{
+			History: user_history,
+			Variant: pseudo_random_variant(user_id, variants),
+			Hash:    hash_string(user_id, 1000),
+		}
+		return c.JSON(response)
 	})
 
 	app.Post("/encode", func(c *fiber.Ctx) error {
@@ -116,12 +131,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
 		}
 		if payload.Variant == "" {
-			if payload.UserId == "" {
-				variant = random_variant(variants)
-			} else {
-				//TODO: implemet stickiness with hash and delete this line
-				variant = random_variant(variants)
-			}
+			variant = pseudo_random_variant(payload.UserId, variants)
 		} else {
 			variant = payload.Variant
 		}
@@ -138,6 +148,9 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			}
 		} else {
 			partition_idx = schema.partition_number(payload.Query, variant)
+			if partition_idx == -1 {
+				return c.JSON(fallbackResponse(popular_items, "Item filters were not supplied, unknown partition.", -1, k))
+			}
 			encoded = schema.encode(payload.Query)
 		}
 		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
@@ -178,11 +191,14 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
 		}
 		if payload.Variant == "" {
-			variant = random_variant(variants)
+			variant = pseudo_random_variant(payload.UserId, variants)
 		} else {
 			variant = payload.Variant
 		}
 		partition_idx := schema.partition_number(payload.Filters, variant)
+		if partition_idx == -1 {
+			return c.JSON(fallbackResponse(popular_items, "User filters were not supplied, unknown partition.", -1, k))
+		}
 		item_vecs := make([][]float32, 1)
 		item_vecs[0] = make([]float32, schema.Dim) // zero_vector
 
@@ -246,6 +262,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 
 	app.Get("/shutdown", func(c *fiber.Ctx) error {
 		fmt.Println("Shutting down")
+		os.RemoveAll("indices")
 		app.Shutdown()
 		return c.SendStatus(200)
 	})
@@ -398,13 +415,15 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 func main() {
 	var useCache bool = true
 	var port int
-	var base_dir string
+	var schema_file string
+	var variants_file string
 	flag.BoolVar(&useCache, "cache", true, "use cache")
-	flag.IntVar(&port, "port", 8008, "port to listen on")
-	flag.StringVar(&base_dir, "dir", ".", "Base directory for data")
+	flag.IntVar(&port, "port", 8088, "port to listen on")
+	flag.StringVar(&schema_file, "schema", "schema.json", "Schema file name")
+	flag.StringVar(&variants_file, "variants", "variants.json", "Variants file name")
 	flag.Parse()
 
-	schema, variants, err := read_schema(base_dir+"/schema.json", base_dir+"/variants.json")
+	schema, variants, err := read_schema(schema_file, variants_file)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -434,7 +453,7 @@ func main() {
 		cached_indices = gcache.New(32).
 			LFU().
 			LoaderFunc(func(key interface{}) (interface{}, error) {
-				ind, err := faiss.ReadIndex(fmt.Sprintf("%s/indices/%d", base_dir, key), 0)
+				ind, err := faiss.ReadIndex(fmt.Sprintf("./indices/%d", key), 0)
 				return *ind, err
 			}).
 			EvictedFunc(func(key, value interface{}) {
@@ -444,7 +463,7 @@ func main() {
 	} else {
 		indices = make([]faiss.Index, len(schema.Partitions))
 		for i, _ := range schema.Partitions {
-			indices[i], err = faiss.ReadIndex(fmt.Sprintf("%s/indices/%d", base_dir, i), 0)
+			indices[i], err = faiss.ReadIndex(fmt.Sprintf("./indices/%d", i), 0)
 			if err != nil {
 				fmt.Println(err)
 				indices[i] = nil

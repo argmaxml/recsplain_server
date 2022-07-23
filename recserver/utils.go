@@ -87,6 +87,16 @@ func contains[T comparable](a []T, x T) bool {
 }
 
 func read_npy(npy string) *mat.Dense {
+	// Download npy if necessary
+	if strings.HasPrefix(npy, "http") {
+		dfilename := npy[strings.LastIndex(npy, "/")+1:]
+		err := download_file(npy, dfilename)
+		if err != nil {
+			return nil
+		}
+		npy = dfilename
+	}
+	// Read npy
 	f, err := os.Open(npy)
 	if err != nil {
 		log.Fatal(err)

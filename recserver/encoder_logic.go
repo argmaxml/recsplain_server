@@ -84,12 +84,17 @@ func (schema Schema) index_partitions(records map[int][]Record) {
 			var faiss_index faiss.Index
 			// https://github.com/facebookresearch/faiss/wiki/The-index-factory
 			index_factory := schema.IndexFactory
+			if schema.Metric == "" {
+				schema.Metric = "l2"
+			}
 			if schema.IndexFactory == "" { //auto compute
-				n_clusters := 128
-				if len(partitioned_records) < n_clusters {
-					n_clusters = len(partitioned_records)
-				}
-				index_factory = fmt.Sprintf("IVF%d,Flat", n_clusters)
+				// n_clusters := 128
+				// if len(partitioned_records) < n_clusters {
+				// 	n_clusters = len(partitioned_records)
+				// }
+				// index_factory = fmt.Sprintf("IVF%d,Flat", n_clusters)
+				// index_factory = "IDMap,LSH"
+				index_factory = "IDMap,Flat"
 			}
 			if strings.ToLower(schema.Metric) == "ip" {
 				faiss_index, _ = faiss.IndexFactory(schema.Dim, index_factory, faiss.MetricInnerProduct)
@@ -196,6 +201,25 @@ func (schema Schema) read_user_csv(filename string, history_col string) (map[str
 }
 
 func read_schema(schema_file string, variants_file string) (Schema, []Variant, error) {
+	// Download schema file if needed
+	if strings.HasPrefix(schema_file, "http") {
+		dfilename := "schema.json"
+		err := download_file(schema_file, dfilename)
+		if err != nil {
+			return Schema{}, nil, err
+		}
+		schema_file = dfilename
+	}
+	// Download variants file if needed
+	if strings.HasPrefix(variants_file, "http") {
+		dfilename := "variants.json"
+		err := download_file(variants_file, dfilename)
+		if err != nil {
+			return Schema{}, nil, err
+		}
+		variants_file = dfilename
+	}
+	// Read schema file
 	schema_json_file, err := os.Open(schema_file)
 	if err != nil {
 		fmt.Println(err)
@@ -205,7 +229,7 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	schema_byte_value, _ := ioutil.ReadAll(schema_json_file)
 	var schema Schema
 	json.Unmarshal(schema_byte_value, &schema)
-
+	// Read variants file
 	variants_json_file, err := os.Open(variants_file)
 	var variants []Variant
 	if err == nil {
@@ -437,14 +461,34 @@ func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
 	}
 }
 
-func random_variant(variants []Variant) string {
-	weights := make([]float64, len(variants))
-	names := make([]string, len(variants))
-	for i := 0; i < len(variants); i++ {
-		weights[i] = variants[i].Percentage
-		names[i] = variants[i].Name
+func pseudo_random_variant(user_id string, variants []Variant) string {
+	var retval string
+	if user_id == "" {
+		// Truely random
+		weights := make([]float64, len(variants))
+		names := make([]string, len(variants))
+		for i := 0; i < len(variants); i++ {
+			weights[i] = variants[i].Percentage
+			names[i] = variants[i].Name
+		}
+		retval = random_by_weights(names, weights)
+	} else {
+		// Pseudo-random
+		var total float64
+		for _, variant := range variants {
+			total += variant.Percentage
+		}
+		hash := float64(hash_string(user_id, int(total)))
+		var cur_weight float64
+		retval = variants[len(variants)-1].Name
+		for _, variant := range variants {
+			cur_weight += variant.Percentage
+			if hash < cur_weight {
+				retval = variant.Name
+				break
+			}
+		}
 	}
-	retval := random_by_weights(names, weights)
 	if retval == "default" {
 		return ""
 	}
