@@ -88,22 +88,26 @@ func (schema Schema) index_partitions(records map[int][]Record) {
 				schema.Metric = "l2"
 			}
 			if schema.IndexFactory == "" { //auto compute
-				// n_clusters := 128
-				// if len(partitioned_records) < n_clusters {
-				// 	n_clusters = len(partitioned_records)
-				// }
-				// index_factory = fmt.Sprintf("IVF%d,Flat", n_clusters)
-				// index_factory = "IDMap,LSH"
-				index_factory = "IDMap,Flat"
+				index_factory = "IDMap,L2norm,Flat"
+				if len(partitioned_records) > 1024 {
+					n_clusters := len(partitioned_records) / 64
+					index_factory = fmt.Sprintf("IDMap,L2norm,IVF%d,Flat", n_clusters)
+				}
 			}
-			if strings.ToLower(schema.Metric) == "ip" {
+			if strings.ToLower(schema.Metric) == "ip" || strings.ToLower(schema.Metric) == "dot" {
 				faiss_index, _ = faiss.IndexFactory(schema.Dim, index_factory, faiss.MetricInnerProduct)
 			}
-			if strings.ToLower(schema.Metric) == "l2" {
+			if strings.ToLower(schema.Metric) == "l2" || strings.ToLower(schema.Metric) == "euclidean" {
 				faiss_index, _ = faiss.IndexFactory(schema.Dim, index_factory, faiss.MetricL2)
 			}
-			if strings.ToLower(schema.Metric) == "l1" {
+			if strings.ToLower(schema.Metric) == "l1" || strings.ToLower(schema.Metric) == "manhattan" {
 				faiss_index, _ = faiss.IndexFactory(schema.Dim, index_factory, faiss.MetricL1)
+			}
+			if strings.ToLower(schema.Metric) == "cosine" || strings.ToLower(schema.Metric) == "cos" {
+				if !strings.Contains(index_factory, "L2norm") {
+					index_factory = strings.ReplaceAll(index_factory, "IDMap", "IDMap,L2norm")
+				}
+				faiss_index, _ = faiss.IndexFactory(schema.Dim, index_factory, faiss.MetricInnerProduct)
 			}
 			xb := make([]float32, schema.Dim*len(partitioned_records))
 			ids := make([]int64, len(partitioned_records))
@@ -276,6 +280,9 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	}
 	schema.Dim = dim
 	schema.Embeddings = embeddings
+	if schema.IndexFactory != "" && (!strings.Contains(schema.IndexFactory, "IDMap")) {
+		schema.IndexFactory = "IDMap," + schema.IndexFactory
+	}
 
 	//Add weight overloading
 	varianted_weights := make([]WeightOverride, 0)

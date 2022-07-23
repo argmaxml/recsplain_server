@@ -122,15 +122,18 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		var partition_idx int
 		var encoded []float32
 		var variant string
+		if payload.Query["variant"] != "" {
+			payload.Variant = payload.Query["variant"]
+		}
 		if payload.Variant == "random" {
 			partition_idx = schema.partition_number(payload.Query, "")
 			return c.JSON(randomResponse(partitioned_records, partition_idx, k))
-		}
-		if payload.Variant == "popular" {
+		} else if payload.Variant == "popular" {
 			partition_idx = schema.partition_number(payload.Query, "")
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
-		}
-		if payload.Variant == "" {
+		} else if payload.Variant == "default" {
+			variant = ""
+		} else if payload.Variant == "" {
 			variant = pseudo_random_variant(payload.UserId, variants)
 		} else {
 			variant = payload.Variant
@@ -182,15 +185,18 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			k = 2
 		}
 		var variant string
+		if payload.Filters["variant"] != "" {
+			payload.Variant = payload.Filters["variant"]
+		}
 		if payload.Variant == "random" {
 			partition_idx := schema.partition_number(payload.Filters, "")
 			return c.JSON(randomResponse(partitioned_records, partition_idx, k))
-		}
-		if payload.Variant == "popular" {
+		} else if payload.Variant == "popular" {
 			partition_idx := schema.partition_number(payload.Filters, "")
 			return c.JSON(fallbackResponse(popular_items, "", partition_idx, k))
-		}
-		if payload.Variant == "" {
+		} else if payload.Variant == "default" {
+			variant = ""
+		} else if payload.Variant == "" {
 			variant = pseudo_random_variant(payload.UserId, variants)
 		} else {
 			variant = payload.Variant
@@ -302,7 +308,7 @@ func explanationResponse(schema Schema, distances []float32, ids []int64, explai
 }
 
 func randomResponse(partitioned_records map[int][]Record, partition_idx int, k int) QueryRetVal {
-	labels := make([]string, len(partitioned_records))
+	labels := make([]string, len(partitioned_records[partition_idx]))
 	for i, record := range partitioned_records[partition_idx] {
 		labels[i] = record.Label
 	}
