@@ -50,6 +50,10 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		return c.JSON(item_lookup.id2label)
 	})
 
+	app.Get("/version", func(c *fiber.Ctx) error {
+		return c.SendString("202207260046")
+	})
+
 	app.Get("/reload_items", func(c *fiber.Ctx) error {
 		partitioned_records, item_lookup, _ = schema.pull_item_data(variants)
 		popular_items = calc_popular_items(partitioned_records, user_data)
