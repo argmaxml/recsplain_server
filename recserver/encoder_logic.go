@@ -304,7 +304,11 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	schema.WeightOverride = append(schema.WeightOverride, varianted_weights...)
 
 	values := make([][]string, len(schema.Filters))
-	for i := 0; i < len(schema.Filters); i++ {
+	values[0] = schema.Filters[0].Values
+	if strings.ToLower(values[0][0]) == "default" {
+		values[0][0] = ""
+	}
+	for i := 1; i < len(schema.Filters); i++ {
 		values[i] = schema.Filters[i].Values
 	}
 	partitions := itertools_product(values...)
