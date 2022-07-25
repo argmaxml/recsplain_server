@@ -97,11 +97,31 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		return c.JSON(response)
 	})
 
+	app.Get("/items/*", func(c *fiber.Ctx) error {
+		partition_number, err := strconv.Atoi(c.Params("*"))
+		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
+			return c.SendString("{\"Status\": \"Error\"}")
+		}
+		response := make([]string, 0)
+		for _, item_id := range partitioned_records[partition_number] {
+			response = append(response, item_id.Label)
+		}
+		return c.JSON(response)
+	})
+
 	app.Post("/encode", func(c *fiber.Ctx) error {
 		var query map[string]string
 		json.Unmarshal(c.Body(), &query)
 		encoded := schema.encode(query)
-		return c.JSON(encoded)
+		response := struct {
+			Vector []float32 `json:"vector"`
+
+			Partition int `json:"partition"`
+		}{
+			Vector:    encoded,
+			Partition: schema.partition_number(query, ""),
+		}
+		return c.JSON(response)
 	})
 
 	app.Post("/item_query/:k?", func(c *fiber.Ctx) error {
@@ -421,11 +441,11 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 }
 
 func main() {
-	var useCache bool = true
+	var useCache bool
 	var port int
 	var schema_file string
 	var variants_file string
-	flag.BoolVar(&useCache, "cache", true, "use cache")
+	flag.BoolVar(&useCache, "cache", false, "use cache")
 	flag.IntVar(&port, "port", 8088, "port to listen on")
 	flag.StringVar(&schema_file, "schema", "schema.json", "Schema file name")
 	flag.StringVar(&variants_file, "variants", "variants.json", "Variants file name")
