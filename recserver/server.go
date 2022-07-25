@@ -427,13 +427,14 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 				break
 			}
 		}
-		for _, record := range partitioned_records[partition_idx] {
-			if n <= 0 {
-				break
-			}
-			popular_items[partition_idx] = append(popular_items[partition_idx], record.Label)
-			n--
-		}
+		//Backfill with popular items from the partition
+		// for _, record := range records {
+		// 	if n <= 0 {
+		// 		break
+		// 	}
+		// 	popular_items[partition_idx] = append(popular_items[partition_idx], record.Label)
+		// 	n--
+		// }
 	}
 	return popular_items
 }
