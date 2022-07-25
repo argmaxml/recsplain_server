@@ -43,15 +43,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/partitions", func(c *fiber.Ctx) error {
-		ret := make([]PartitionMeta, len(schema.Partitions))
-		for i, partition := range schema.Partitions {
-			ret[i].Name = partition
-			if !indices.useCache {
-				ret[i].Count = int(indices.array[i].Ntotal())
-				ret[i].Trained = indices.array[i].IsTrained()
-			}
-		}
-		return c.JSON(ret)
+		return c.JSON(schema.Partitions)
 	})
 
 	app.Get("/labels", func(c *fiber.Ctx) error {
@@ -435,7 +427,12 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 				break
 			}
 		}
-
+		for _, record := range partitioned_records[partition_idx] {
+			if len(popular_items[partition_idx]) >= 100 {
+				break
+			}
+			popular_items[partition_idx] = append(popular_items[partition_idx], record.Label)
+		}
 	}
 	return popular_items
 }

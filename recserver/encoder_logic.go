@@ -271,19 +271,18 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	schema.Filters = append(variant_filter, schema.Filters...)
 
 	embeddings := make(map[string]*mat.Dense)
-	dim := 0
+	schema.Dim = 0
 	for i := 0; i < len(schema.Encoders); i++ {
 		encoder_type := strings.ToLower(schema.Encoders[i].Type)
 		if contains([]string{"np", "numpy", "npy"}, encoder_type) {
 			embeddings[schema.Encoders[i].Field] = read_npy(schema.Encoders[i].Npy)
 			_, emb_size := embeddings[schema.Encoders[i].Field].Dims()
-			dim += emb_size
+			schema.Dim += emb_size
 		}
 		if contains([]string{"numeric", "num", "scalar"}, encoder_type) {
-			dim += 1
+			schema.Dim += 1
 		}
 	}
-	schema.Dim = dim
 	schema.Embeddings = embeddings
 	if schema.IndexFactory != "" && (!strings.Contains(schema.IndexFactory, "IDMap")) {
 		schema.IndexFactory = "IDMap," + schema.IndexFactory
@@ -304,23 +303,16 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	schema.WeightOverride = append(schema.WeightOverride, varianted_weights...)
 
 	values := make([][]string, len(schema.Filters))
-	values[0] = schema.Filters[0].Values
-	if strings.ToLower(values[0][0]) == "default" {
-		values[0][0] = ""
-	}
-	for i := 1; i < len(schema.Filters); i++ {
+	for i := 0; i < len(schema.Filters); i++ {
 		values[i] = schema.Filters[i].Values
 	}
-	partitions := itertools_product(values...)
+	schema.Partitions = itertools_product(values...)
 
-	schema.Partitions = partitions
-
-	partition_map := make(map[string]int)
-	for i := 0; i < len(partitions); i++ {
-		key := strings.Join(partitions[i], "~")
-		partition_map[key] = i
+	schema.PartitionMap = make(map[string]int)
+	for i := 0; i < len(schema.Partitions); i++ {
+		key := strings.Join(schema.Partitions[i], "~")
+		schema.PartitionMap[key] = i
 	}
-	schema.PartitionMap = partition_map
 	return schema, variants, nil
 }
 

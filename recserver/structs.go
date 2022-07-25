@@ -78,12 +78,6 @@ type Record struct {
 	Fields    []string
 }
 
-type PartitionMeta struct {
-	Name    []string `json:"name"`
-	Count   int      `json:"count"`
-	Trained bool     `json:"trained"`
-}
-
 type Variant struct {
 	Name       string             `json:"name"`
 	Percentage float64            `json:"percentage"`
