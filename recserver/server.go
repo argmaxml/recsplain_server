@@ -218,6 +218,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		}
 		// If user had no history
 		if len(payload.History) == 0 {
+			partition_idx := schema.partition_number(payload.Filters, "")
 			return c.JSON(fallbackResponse(popular_items, "User has no history", partition_idx, k))
 		}
 		for _, item_id := range payload.History {
