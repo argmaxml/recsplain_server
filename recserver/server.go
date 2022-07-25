@@ -46,9 +46,10 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		ret := make([]PartitionMeta, len(schema.Partitions))
 		for i, partition := range schema.Partitions {
 			ret[i].Name = partition
-			//TODO: fix
-			// ret[i].Count = int(indices[i].Ntotal())
-			// ret[i].Trained = indices[i].IsTrained()
+			if !indices.useCache {
+				ret[i].Count = int(indices.array[i].Ntotal())
+				ret[i].Trained = indices.array[i].IsTrained()
+			}
 		}
 		return c.JSON(ret)
 	})

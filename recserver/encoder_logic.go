@@ -255,7 +255,12 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	}
 	variants_vals := make([]string, len(variants))
 	for i, variant := range variants {
-		variants_vals[i] = variant.Name
+		if variants_vals[i] == "default" {
+			variants_vals[i] = ""
+			variant.Name = ""
+		} else {
+			variants_vals[i] = variant.Name
+		}
 	}
 	variant_filter := make([]Filter, 1)
 	variant_filter[0] = Filter{
@@ -378,6 +383,9 @@ func (schema Schema) partition_number(query map[string]string, variant string) i
 			val = schema.Filters[i].Default
 		}
 		filters[i] = val
+	}
+	if variant == "default" {
+		variant = ""
 	}
 	filters[0] = variant
 	partition_key := strings.Join(filters, "~")
