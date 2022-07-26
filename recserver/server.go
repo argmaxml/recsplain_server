@@ -60,7 +60,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/version", func(c *fiber.Ctx) error {
-		return c.SendString("202207262002")
+		return c.SendString("202207262032")
 	})
 
 	app.Get("/reload_items", func(c *fiber.Ctx) error {
@@ -345,21 +345,32 @@ func explanationResponse(schema Schema, distances []float32, ids []int64, explai
 	return QueryRetVal{
 		Explanations: retrieved,
 		Variant:      variant,
+		Partition:    partition_idx,
 		Error:        "",
 		Timestamp:    time.Now().Unix(),
 	}
 }
 
 func randomResponse(partitioned_records map[int][]Record, partition_idx int, k int) QueryRetVal {
-	labels := make([]string, len(partitioned_records[partition_idx]))
+	var labels []string
+	var random_items []string
+	if partition_idx == -1 {
+		// Choose a random partition
+		partition_idx = rand.Intn(len(partitioned_records))
+	}
+	labels = make([]string, len(partitioned_records[partition_idx]))
 	for i, record := range partitioned_records[partition_idx] {
 		labels[i] = record.Label
 	}
 	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(labels), func(i, j int) {
-		labels[i], labels[j] = labels[j], labels[i]
-	})
-	random_items := labels[:k]
+	if len(labels) > k {
+		rand.Shuffle(len(labels), func(i, j int) {
+			labels[i], labels[j] = labels[j], labels[i]
+		})
+		random_items = labels[:k]
+	} else {
+		random_items = labels
+	}
 
 	retrieved := make([]Explanation, 0)
 	for _, item_id := range random_items {
@@ -377,6 +388,7 @@ func randomResponse(partitioned_records map[int][]Record, partition_idx int, k i
 		Explanations: retrieved,
 		Variant:      "random",
 		Error:        "",
+		Partition:    partition_idx,
 		Timestamp:    time.Now().Unix(),
 	}
 }
@@ -398,6 +410,7 @@ func fallbackResponse(popular_items map[int][]string, message string, partition_
 		Explanations: retrieved,
 		Variant:      "popular",
 		Error:        message,
+		Partition:    partition_idx,
 		Timestamp:    time.Now().Unix(),
 	}
 }
