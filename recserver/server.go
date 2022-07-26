@@ -60,7 +60,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/version", func(c *fiber.Ctx) error {
-		return c.SendString("202207260046")
+		return c.SendString("202207262002")
 	})
 
 	app.Get("/reload_items", func(c *fiber.Ctx) error {
@@ -106,7 +106,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		partition_number, err := strconv.Atoi(c.Params("*"))
 		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
 			var found bool
-			partition_number, found = schema.PartitionMap[c.Params("*")]
+			partition_number, found = schema.PartitionMap["~"+c.Params("*")]
 			if !found {
 				return c.SendString("{\"Status\": \"Partition not found\"}")
 			}
@@ -116,6 +116,18 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			response = append(response, item_id.Label)
 		}
 		return c.JSON(response)
+	})
+
+	app.Get("/popular_items/*", func(c *fiber.Ctx) error {
+		partition_number, err := strconv.Atoi(c.Params("*"))
+		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
+			var found bool
+			partition_number, found = schema.PartitionMap["~"+c.Params("*")]
+			if !found {
+				return c.SendString("{\"Status\": \"Partition not found\"}")
+			}
+		}
+		return c.JSON(popular_items[partition_number])
 	})
 
 	app.Post("/encode", func(c *fiber.Ctx) error {
@@ -445,13 +457,13 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 			}
 		}
 		//Backfill with popular items from the partition
-		// for _, record := range records {
-		// 	if n <= 0 {
-		// 		break
-		// 	}
-		// 	popular_items[partition_idx] = append(popular_items[partition_idx], record.Label)
-		// 	n--
-		// }
+		for _, record := range records {
+			if n <= 0 {
+				break
+			}
+			popular_items[partition_idx] = append(popular_items[partition_idx], record.Label)
+			n--
+		}
 	}
 	return popular_items
 }
