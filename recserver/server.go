@@ -43,7 +43,16 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/partitions", func(c *fiber.Ctx) error {
-		return c.JSON(schema.Partitions)
+		response := make(map[string](map[string]int))
+		for _, variant := range variants {
+			response[variant.Name] = make(map[string]int)
+		}
+		for partition_idx, partition := range partitioned_records {
+			variant := schema.Partitions[partition_idx][0]
+			key := strings.Join(schema.Partitions[partition_idx][1:], ",")
+			response[variant][key] = len(partition)
+		}
+		return c.JSON(response)
 	})
 
 	app.Get("/labels", func(c *fiber.Ctx) error {
@@ -96,7 +105,11 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	app.Get("/items/*", func(c *fiber.Ctx) error {
 		partition_number, err := strconv.Atoi(c.Params("*"))
 		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
-			return c.SendString("{\"Status\": \"Error\"}")
+			var found bool
+			partition_number, found = schema.PartitionMap[c.Params("*")]
+			if !found {
+				return c.SendString("{\"Status\": \"Partition not found\"}")
+			}
 		}
 		response := make([]string, 0)
 		for _, item_id := range partitioned_records[partition_number] {
