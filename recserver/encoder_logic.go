@@ -385,6 +385,7 @@ func (schema Schema) partition_number(query map[string]string, variant string) i
 	}
 	filters[0] = variant
 	partition_key := strings.Join(filters, "~")
+	fmt.Print("Partition key: '", partition_key, "'")
 	partition_idx, found := schema.PartitionMap[partition_key]
 	if !found {
 		// No partition found, try manually searching for it
