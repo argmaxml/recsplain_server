@@ -245,7 +245,13 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		}
 		partition_idx := schema.partition_number(payload.Filters, variant)
 		if partition_idx == -1 {
-			return c.JSON(fallbackResponse(popular_items, "User filters were not supplied, unknown partition.", -1, k))
+			// serialize filters to json
+			filters_json, err := json.Marshal(payload.Filters)
+			if err != nil {
+				return c.JSON(fallbackResponse(popular_items, "Cannot serialize filters", -1, k))
+			}
+
+			return c.JSON(fallbackResponse(popular_items, "User filters error, unknown partition.\n"+string(filters_json), -1, k))
 		}
 		item_vecs := make([][]float32, 1)
 		item_vecs[0] = make([]float32, schema.Dim) // zero_vector
