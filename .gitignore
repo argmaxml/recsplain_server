@@ -18,3 +18,4 @@
 *.py
 *.csv
 recserver/recserver
+recserver/jokr.sh
