@@ -461,27 +461,6 @@ func (schema Schema) reconstruct(partitioned_records map[int][]Record, id int64,
 	return reconstructed
 }
 
-func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
-	var err error
-	if index < 0 {
-		err = errors.New(fmt.Sprintf("Index %d not found", index))
-		return nil, err
-	}
-	if c.useCache {
-		faiss_interface, err := c.cache.Get(index)
-		if err != nil {
-			return nil, err
-		}
-		return faiss_interface.(faiss.Index), nil
-	} else {
-		ret := c.array[index]
-		if ret == nil {
-			err = errors.New(fmt.Sprintf("Index %d not found", index))
-		}
-		return ret, err
-	}
-}
-
 func pseudo_random_variant(user_id string, variants []Variant) string {
 	var retval string
 	if user_id == "" {
