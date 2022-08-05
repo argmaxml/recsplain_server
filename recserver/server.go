@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
+	"github.com/go-redis/redis/v9"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/template/html"
 	"gonum.org/v1/gonum/mat"
@@ -490,11 +493,36 @@ func main() {
 	var port int
 	var schema_file string
 	var variants_file string
+	var credentials_file string
 	flag.IntVar(&port, "port", 8088, "port to listen on")
 	flag.StringVar(&schema_file, "schema", "schema.json", "Schema file name")
 	flag.StringVar(&variants_file, "variants", "variants.json", "Variants file name")
+	flag.StringVar(&credentials_file, "credentials", "credentials.json", "Credentials file name")
 	flag.Parse()
 
+	// read json file
+	credentials_json, err := ioutil.ReadFile(credentials_file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	credentials := make(map[string]string)
+	err = json.Unmarshal(credentials_json, &credentials)
+
+	var ctx = context.Background()
+	redis_db, _ := strconv.Atoi(credentials["redis_db"])
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     credentials["redis_addr"],
+		Password: credentials["redis_password"],
+		DB:       redis_db,
+	})
+
+	fmt.Println(rdb.Do(ctx, "CONFIG", "GET", "databases").String())
+	fmt.Println(rdb.Do(ctx, "INFO", "keyspace").String())
+	fmt.Println(rdb.Do(ctx, "FT.CREATE", "vec_sim", "SCHEMA", "vector_field", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC",
+		"L2", "INITIAL_CAP", "1000", "M", "40", "EF_CONSTRUCTION", "250", "EF_RUNTIME", "20").String())
+
+	rdb.Set(ctx, "TEST", "Hello World", 10*time.Second)
+	fmt.Println(rdb.Get(ctx, "TEST").String())
 	schema, variants, err := read_schema(schema_file, variants_file)
 	if err != nil {
 		log.Fatal(err)
