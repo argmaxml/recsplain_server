@@ -518,8 +518,8 @@ func main() {
 
 	fmt.Println(rdb.Do(ctx, "CONFIG", "GET", "databases").String())
 	fmt.Println(rdb.Do(ctx, "INFO", "keyspace").String())
-	fmt.Println(rdb.Do(ctx, "FT.CREATE", "vec_sim", "SCHEMA", "vector_field", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC",
-		"L2", "INITIAL_CAP", "1000", "M", "40", "EF_CONSTRUCTION", "250", "EF_RUNTIME", "20").String())
+	// fmt.Println(rdb.Do(ctx, "FT.CREATE", "vec_sim", "SCHEMA", "vector_field", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC",
+	// 	"L2", "INITIAL_CAP", "1000", "M", "40", "EF_CONSTRUCTION", "250", "EF_RUNTIME", "20").String())
 
 	rdb.Set(ctx, "TEST", "Hello World", 10*time.Second)
 	fmt.Println(rdb.Get(ctx, "TEST").String())
@@ -564,5 +564,11 @@ func main() {
 			go poll_endpoint(fmt.Sprintf("http://localhost:%d/reload_"+src.Record, port), src.RefreshRate)
 		}
 	}
+
+	//Set all the requried databases on the schema
+	schema.redis_client = rdb
+	schema.redis_context = ctx
+	//TODO:
+	schema.DB = nil
 	start_server(port, schema, variants, indices, item_lookup, partitioned_records, user_data)
 }

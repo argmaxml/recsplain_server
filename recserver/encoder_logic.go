@@ -165,6 +165,12 @@ func (schema Schema) pull_user_data() (map[string][]string, error) {
 					return nil, err
 				}
 				found_user_source = true
+			} else if src.Type == "redis" {
+				user_data, err = schema.read_user_redis(src.Path, src.Query)
+				if err != nil {
+					return nil, err
+				}
+				found_user_source = true
 			}
 		}
 	}
@@ -202,6 +208,10 @@ func (schema Schema) read_user_csv(filename string, history_col string) (map[str
 	}
 
 	return user_data, nil
+}
+func (schema Schema) read_user_redis(prefix string, query string) (map[string][]string, error) {
+	//TODO: implement redis
+	return nil, nil
 }
 
 func read_schema(schema_file string, variants_file string) (Schema, []Variant, error) {

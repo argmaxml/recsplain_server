@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"database/sql"
+
+	"github.com/go-redis/redis/v9"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -17,6 +21,9 @@ type Schema struct {
 	Partitions     [][]string
 	PartitionMap   map[string]int
 	WeightOverride []WeightOverride `json:"weight_override"`
+	DB             *sql.DB
+	redis_client   *redis.Client
+	redis_context  context.Context
 }
 
 type Filter struct {
