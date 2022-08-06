@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,6 +66,22 @@ func (schema Schema) read_partitioned_csv(filename string, variants []Variant) (
 	}
 	item_lookup.id2label = id2label
 	return partition2records, item_lookup, nil
+}
+
+func (schema Schema) read_partitioned_db(connection_string string, variants []Variant) (map[int][]Record, ItemLookup, error) {
+	//connecting database
+	db_vendor := strings.SplitN(connection_string, "://", 2)[0]
+	specific_connection_string := strings.SplitN(connection_string, "://", 2)[0]
+	db, err := sql.Open(db_vendor, specific_connection_string)
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	defer db.Close()
+
+	//TODO: implement
+	return nil, ItemLookup{}, nil
 }
 
 func (schema Schema) index_partitions(records map[int][]Record) {
@@ -140,6 +157,12 @@ func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemL
 		if strings.ToLower(src.Record) == "items" {
 			if src.Type == "csv" {
 				partitioned_records, item_lookup, err = schema.read_partitioned_csv(src.Path, variants)
+				if err != nil {
+					return nil, ItemLookup{}, err
+				}
+				found_item_source = true
+			} else if src.Type == "sql" {
+				partitioned_records, item_lookup, err = schema.read_partitioned_db(src.Query, variants)
 				if err != nil {
 					return nil, ItemLookup{}, err
 				}
