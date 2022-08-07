@@ -17,5 +17,6 @@
 *.npy
 *.py
 *.csv
+credentials.json
 recserver/recserver
 recserver/jokr.sh

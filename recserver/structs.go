@@ -1,8 +1,10 @@
 package main
 
 import (
-	"github.com/DataIntelligenceCrew/go-faiss"
-	"github.com/bluele/gcache"
+	"context"
+	"database/sql"
+
+	"github.com/go-redis/redis/v9"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -19,6 +21,9 @@ type Schema struct {
 	Partitions     [][]string
 	PartitionMap   map[string]int
 	WeightOverride []WeightOverride `json:"weight_override"`
+	DB             *sql.DB
+	redis_client   *redis.Client
+	redis_context  context.Context
 }
 
 type Filter struct {
@@ -83,10 +88,4 @@ type Variant struct {
 	Name       string             `json:"name"`
 	Percentage float64            `json:"percentage"`
 	Weights    map[string]float64 `json:"weights"`
-}
-
-type IndexCache struct {
-	cache    gcache.Cache
-	array    []faiss.Index
-	useCache bool
 }

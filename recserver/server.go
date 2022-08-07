@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -13,13 +15,13 @@ import (
 	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
-	"github.com/bluele/gcache"
+	"github.com/go-redis/redis/v9"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/template/html"
 	"gonum.org/v1/gonum/mat"
 )
 
-func start_server(port int, schema Schema, variants []Variant, indices IndexCache, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
+func start_server(port int, schema Schema, variants []Variant, indices []faiss.Index, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
@@ -198,8 +200,8 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			}
 			encoded = schema.encode(payload.Query)
 		}
-		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
-		if err != nil {
+		faiss_index = indices[partition_idx]
+		if partition_idx < 0 || partition_idx >= len(indices) {
 			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
 		distances, ids, err := faiss_index.Search(encoded, int64(k))
@@ -286,8 +288,8 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			}
 		}
 
-		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
-		if err != nil {
+		faiss_index = indices[partition_idx]
+		if partition_idx < 0 || partition_idx >= len(indices) {
 			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
 		distances, ids, err := faiss_index.Search(user_vec, int64(k))
@@ -488,22 +490,44 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 }
 
 func main() {
-	var useCache bool
 	var port int
 	var schema_file string
 	var variants_file string
-	flag.BoolVar(&useCache, "cache", false, "use cache")
+	var credentials_file string
 	flag.IntVar(&port, "port", 8088, "port to listen on")
 	flag.StringVar(&schema_file, "schema", "schema.json", "Schema file name")
 	flag.StringVar(&variants_file, "variants", "variants.json", "Variants file name")
+	flag.StringVar(&credentials_file, "credentials", "credentials.json", "Credentials file name")
 	flag.Parse()
 
+	// read json file
+	credentials_json, err := ioutil.ReadFile(credentials_file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	credentials := make(map[string]string)
+	err = json.Unmarshal(credentials_json, &credentials)
+
+	var ctx = context.Background()
+	redis_db, _ := strconv.Atoi(credentials["redis_db"])
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     credentials["redis_addr"],
+		Password: credentials["redis_password"],
+		DB:       redis_db,
+	})
+
+	fmt.Println(rdb.Do(ctx, "CONFIG", "GET", "databases").String())
+	fmt.Println(rdb.Do(ctx, "INFO", "keyspace").String())
+	// fmt.Println(rdb.Do(ctx, "FT.CREATE", "vec_sim", "SCHEMA", "vector_field", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC",
+	// 	"L2", "INITIAL_CAP", "1000", "M", "40", "EF_CONSTRUCTION", "250", "EF_RUNTIME", "20").String())
+
+	rdb.Set(ctx, "TEST", "Hello World", 10*time.Second)
+	fmt.Println(rdb.Get(ctx, "TEST").String())
 	schema, variants, err := read_schema(schema_file, variants_file)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var cached_indices gcache.Cache
 	var indices []faiss.Index
 	var partitioned_records map[int][]Record
 	var user_data map[string][]string
@@ -524,25 +548,12 @@ func main() {
 
 	schema.index_partitions(partitioned_records)
 
-	if useCache {
-		cached_indices = gcache.New(32).
-			LFU().
-			LoaderFunc(func(key interface{}) (interface{}, error) {
-				ind, err := faiss.ReadIndex(fmt.Sprintf("./indices/%d", key), 0)
-				return *ind, err
-			}).
-			EvictedFunc(func(key, value interface{}) {
-				value.(faiss.Index).Delete()
-			}).
-			Build()
-	} else {
-		indices = make([]faiss.Index, len(schema.Partitions))
-		for i, _ := range schema.Partitions {
-			indices[i], err = faiss.ReadIndex(fmt.Sprintf("./indices/%d", i), 0)
-			if err != nil {
-				fmt.Println(err)
-				indices[i] = nil
-			}
+	indices = make([]faiss.Index, len(schema.Partitions))
+	for i, _ := range schema.Partitions {
+		indices[i], err = faiss.ReadIndex(fmt.Sprintf("./indices/%d", i), 0)
+		if err != nil {
+			fmt.Println(err)
+			indices[i] = nil
 		}
 	}
 
@@ -553,10 +564,11 @@ func main() {
 			go poll_endpoint(fmt.Sprintf("http://localhost:%d/reload_"+src.Record, port), src.RefreshRate)
 		}
 	}
-	index_dict := IndexCache{
-		cache:    cached_indices,
-		array:    indices,
-		useCache: useCache,
-	}
-	start_server(port, schema, variants, index_dict, item_lookup, partitioned_records, user_data)
+
+	//Set all the requried databases on the schema
+	schema.redis_client = rdb
+	schema.redis_context = ctx
+	//TODO:
+	schema.DB = nil
+	start_server(port, schema, variants, indices, item_lookup, partitioned_records, user_data)
 }
