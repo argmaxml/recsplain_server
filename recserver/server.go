@@ -121,6 +121,8 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 	})
 
 	app.Get("/popular_items/*", func(c *fiber.Ctx) error {
+		//convert string to int
+
 		partition_number, err := strconv.Atoi(c.Params("*"))
 		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
 			var found bool
