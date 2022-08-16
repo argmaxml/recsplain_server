@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,13 +56,14 @@ func TestList(t *testing.T) {
 	})
 	// rdb.RPush(ctx, "LIST", "1", 10*time.Second)
 	// rdb.RPush(ctx, "LIST", "2", 10*time.Second)
-	rdb.Set(ctx, "LIST", "o", 10*time.Second)
-	rdb.Append(ctx, "LIST", "a")
-	rdb.Append(ctx, "LIST", "b")
-	rdb.Append(ctx, "LIST", "c")
-	actual := rdb.GetRange(ctx, "LIST", 0, 2).Val()
-	expected := "oab"
-	if actual != expected {
+	rdb.Del(ctx, "LIST")
+	rdb.RPush(ctx, "LIST", "z z")
+	rdb.LPush(ctx, "LIST", "a a")
+	len := rdb.LLen(ctx, "LIST").Val()
+	fmt.Fprintf(os.Stderr, "len: %d\n", len)
+	actual := rdb.LRange(ctx, "LIST", 0, 2).Val()
+	expected := "a a~z z"
+	if strings.Join(actual, "~") != expected {
 		t.Errorf("Expected %s, got %s", expected, actual)
 	}
 
