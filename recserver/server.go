@@ -21,13 +21,13 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-func start_server(port int, schema Schema, variants []Variant, indices []faiss.Index, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
+func start_server(port int, schema Schema, variants []Variant, indices []faiss.Index, item_lookup ItemLookup, partitioned_records map[int][]Record) {
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
 
 	var popular_items map[int][]string
-	popular_items = calc_popular_items(partitioned_records, user_data)
+	popular_items = schema.calc_popular_items(partitioned_records)
 
 	var faiss_index faiss.Index
 	app.Get("/npy/*", func(c *fiber.Ctx) error {
@@ -67,7 +67,7 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 
 	app.Get("/reload_items", func(c *fiber.Ctx) error {
 		partitioned_records, item_lookup, _ = schema.pull_item_data(variants)
-		popular_items = calc_popular_items(partitioned_records, user_data)
+		popular_items = schema.calc_popular_items(partitioned_records)
 		os.RemoveAll("indices")
 		schema.index_partitions(partitioned_records)
 		return c.SendString("{\"Status\": \"OK\"}")
@@ -75,21 +75,19 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 
 	app.Get("/reload_users", func(c *fiber.Ctx) error {
 		var err error
-		if user_data == nil {
-			return c.SendString("User history not available in sources list")
-		}
-		user_data, err = schema.pull_user_data()
+		err = schema.pull_user_data()
 		if err != nil {
 			return c.SendString(err.Error())
 		}
-		popular_items = calc_popular_items(partitioned_records, user_data)
+		popular_items = schema.calc_popular_items(partitioned_records)
 		return c.SendString("{\"Status\": \"OK\"}")
 	})
 
 	app.Get("/user/*", func(c *fiber.Ctx) error {
+		var err error
 		user_id := c.Params("*")
-		user_history, found := user_data[user_id]
-		if !found {
+		user_history, err := schema.get_user_history(user_id)
+		if err != nil {
 			return c.SendString("{\"Status\": \"User not found\"}")
 		}
 		response := struct {
@@ -262,10 +260,10 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 
 		if payload.UserId != "" {
 			//Override user history from the id, if provided
-			if user_data == nil {
+			payload.History, err = schema.get_user_history(payload.UserId)
+			if err != nil {
 				return c.JSON(fallbackResponse(popular_items, "User history not available in sources list", partition_idx, k))
 			}
-			payload.History = user_data[payload.UserId]
 		}
 		// If user had no history
 		if len(payload.History) == 0 {
@@ -424,9 +422,23 @@ func fallbackResponse(popular_items map[int][]string, message string, partition_
 		Timestamp:    time.Now().Unix(),
 	}
 }
+func (schema Schema) get_user_history(user_id string) ([]string, error) {
+	res := schema.redis_client.LRange(schema.redis_context, "USER_"+user_id, 0, -1)
+	if res.Err() != nil {
+		return make([]string, 0), res.Err()
+	}
+	return res.Val(), nil
+}
 
-func calc_popular_items(partitioned_records map[int][]Record, user_data map[string][]string) map[int][]string {
-	if user_data == nil {
+func (schema Schema) calc_popular_items(partitioned_records map[int][]Record) map[int][]string {
+	user_keys := schema.redis_client.Keys(schema.redis_context, "USER_*").Val()
+	user_data := make(map[string][]string)
+	for _, user_key := range user_keys {
+		user_id := user_key[5:]
+		user_data[user_id] = schema.redis_client.LRange(schema.redis_context, user_key, 0, -1).Val()
+	}
+
+	if user_data == nil || len(user_data) == 0 {
 		//No user data, so no popular items - return something
 		ret := make(map[int][]string)
 		ret[0] = make([]string, 0)
@@ -532,7 +544,6 @@ func main() {
 
 	var indices []faiss.Index
 	var partitioned_records map[int][]Record
-	var user_data map[string][]string
 
 	item_lookup := ItemLookup{
 		id2label:        make([]string, 0),
@@ -543,7 +554,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	user_data, err = schema.pull_user_data()
+	err = schema.pull_user_data()
 	if err != nil {
 		log.Println(err)
 	}
@@ -572,5 +583,5 @@ func main() {
 	schema.redis_context = ctx
 	//TODO:
 	schema.DB = nil
-	start_server(port, schema, variants, indices, item_lookup, partitioned_records, user_data)
+	start_server(port, schema, variants, indices, item_lookup, partitioned_records)
 }

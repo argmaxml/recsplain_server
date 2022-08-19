@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +14,36 @@ import (
 
 	"github.com/go-redis/redis/v9"
 )
+
+func TestKeys(t *testing.T) {
+	// read json file
+	credentials_json, err := ioutil.ReadFile("credentials.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := make(map[string]string)
+	err = json.Unmarshal(credentials_json, &credentials)
+
+	var ctx = context.Background()
+	redis_db, _ := strconv.Atoi(credentials["redis_db"])
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     credentials["redis_addr"],
+		Password: credentials["redis_password"],
+		DB:       redis_db,
+	})
+	expected := "USER_1,USER_2,USER_3,USER_4"
+	rdb.Set(ctx, "USER_1", expected, 2*time.Second)
+	rdb.Set(ctx, "USER_2", expected, 2*time.Second)
+	rdb.Set(ctx, "USER_3", expected, 2*time.Second)
+	rdb.Set(ctx, "USER_4", expected, 2*time.Second)
+	keys := rdb.Keys(ctx, "USER_*").Val()
+	sort.Strings(keys)
+	actual := strings.Join(keys, ",")
+	if actual != expected {
+		t.Errorf("Expected %s, got %s", expected, actual)
+	}
+
+}
 
 func TestGet(t *testing.T) {
 	// read json file

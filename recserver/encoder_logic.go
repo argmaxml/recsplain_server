@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
 	"gonum.org/v1/gonum/mat"
@@ -176,31 +177,38 @@ func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemL
 	return partitioned_records, item_lookup, err
 }
 
-func (schema Schema) pull_user_data() (map[string][]string, error) {
-	var user_data map[string][]string
+func (schema Schema) pull_user_data() error {
 	var err error
 	found_user_source := false
 	for _, src := range schema.Sources {
 		if strings.ToLower(src.Record) == "users" {
 			if src.Type == "csv" {
-				user_data, err = schema.read_user_csv(src.Path, src.Query)
+				user_data, err := schema.read_user_csv(src.Path, src.Query)
 				if err != nil {
-					return nil, err
+					return err
 				}
+				// Feed data to redis
+				for user_id, user_history := range user_data {
+					redis_key := "USER_" + user_id
+					schema.redis_client.Set(schema.redis_context, redis_key, user_history, time.Duration(src.RefreshRate)*time.Second)
+				}
+
 				found_user_source = true
 			} else if src.Type == "redis" {
-				user_data, err = schema.read_user_redis(src.Path, src.Query)
+				// Only verify that the data is there
+				res := schema.redis_client.Keys(schema.redis_context, "USER_*")
+				err = res.Err()
 				if err != nil {
-					return nil, err
+					return err
 				}
-				found_user_source = true
+				found_user_source = len(res.Val()) > 0
 			}
 		}
 	}
 	if !found_user_source {
-		return nil, errors.New("no user source found")
+		return errors.New("no user source found")
 	}
-	return user_data, err
+	return err
 }
 
 func (schema Schema) read_user_csv(filename string, history_col string) (map[string][]string, error) {
@@ -231,10 +239,6 @@ func (schema Schema) read_user_csv(filename string, history_col string) (map[str
 	}
 
 	return user_data, nil
-}
-func (schema Schema) read_user_redis(prefix string, query string) (map[string][]string, error) {
-	//TODO: implement redis
-	return nil, nil
 }
 
 func read_schema(schema_file string, variants_file string) (Schema, []Variant, error) {
