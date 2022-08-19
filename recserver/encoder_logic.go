@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
 	"gonum.org/v1/gonum/mat"
@@ -190,7 +189,10 @@ func (schema Schema) pull_user_data() error {
 				// Feed data to redis
 				for user_id, user_history := range user_data {
 					redis_key := "USER_" + user_id
-					schema.redis_client.Set(schema.redis_context, redis_key, user_history, time.Duration(src.RefreshRate)*time.Second)
+					schema.redis_client.Del(schema.redis_context, redis_key)
+					for _, item_id := range user_history {
+						schema.redis_client.RPush(schema.redis_context, redis_key, item_id)
+					}
 				}
 
 				found_user_source = true
