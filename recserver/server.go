@@ -74,8 +74,7 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 	})
 
 	app.Get("/reload_users", func(c *fiber.Ctx) error {
-		var err error
-		err = schema.pull_user_data()
+		err := schema.pull_user_data()
 		if err != nil {
 			return c.SendString(err.Error())
 		}
@@ -434,6 +433,7 @@ func (schema Schema) get_user_history(user_id string) ([]string, error) {
 }
 
 func (schema Schema) calc_popular_items(partitioned_records map[int][]Record) map[int][]string {
+	fmt.Println("Calculating popular items")
 	var ctx = context.Background()
 	redis_client := redis.NewClient(&schema.redis_opt)
 	user_keys := redis_client.Keys(ctx, "USER_*").Val()

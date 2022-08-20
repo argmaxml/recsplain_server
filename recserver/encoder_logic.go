@@ -151,6 +151,7 @@ func (schema Schema) index_partitions(records map[int][]Record) {
 }
 
 func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemLookup, error) {
+	fmt.Println("Pulling Item Data")
 	var item_lookup ItemLookup
 	var partitioned_records map[int][]Record
 	var err error
@@ -179,6 +180,7 @@ func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemL
 }
 
 func (schema Schema) pull_user_data() error {
+	fmt.Println("Pulling User data")
 	var err error
 	found_user_source := false
 	for _, src := range schema.Sources {
@@ -194,10 +196,19 @@ func (schema Schema) pull_user_data() error {
 				defer redis_client.Close()
 				for user_id, user_history := range user_data {
 					redis_key := "USER_" + user_id
-					redis_client.Del(ctx, redis_key)
-					for _, item_id := range user_history {
-						redis_client.RPush(ctx, redis_key, item_id)
+					var user_history_interface []interface{}
+					for _, item := range user_history {
+						user_history_interface = append(user_history_interface, item)
 					}
+					// redis_client.Del(ctx, redis_key)
+					// redis_client.RPush(ctx, redis_key, user_history_interface...)
+					go func(redis_key string, redis_list []interface{}) {
+						redis_client.Del(ctx, redis_key)
+						redis_client.RPush(ctx, redis_key, redis_list...)
+						// for _, item_id := range redis_list {
+						// 	redis_client.RPush(ctx, redis_key, item_id)
+						// }
+					}(redis_key, user_history_interface)
 				}
 
 				found_user_source = true
