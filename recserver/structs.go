@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 
 	"github.com/go-redis/redis/v9"
@@ -22,8 +21,7 @@ type Schema struct {
 	PartitionMap   map[string]int
 	WeightOverride []WeightOverride `json:"weight_override"`
 	DB             *sql.DB
-	redis_client   *redis.Client
-	redis_context  context.Context
+	redis_opt      redis.Options
 }
 
 type Filter struct {

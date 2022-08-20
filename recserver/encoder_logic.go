@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
+	"github.com/go-redis/redis/v9"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -187,18 +189,24 @@ func (schema Schema) pull_user_data() error {
 					return err
 				}
 				// Feed data to redis
+				ctx := context.Background()
+				redis_client := redis.NewClient(&schema.redis_opt)
+				defer redis_client.Close()
 				for user_id, user_history := range user_data {
 					redis_key := "USER_" + user_id
-					schema.redis_client.Del(schema.redis_context, redis_key)
+					redis_client.Del(ctx, redis_key)
 					for _, item_id := range user_history {
-						schema.redis_client.RPush(schema.redis_context, redis_key, item_id)
+						redis_client.RPush(ctx, redis_key, item_id)
 					}
 				}
 
 				found_user_source = true
 			} else if src.Type == "redis" {
 				// Only verify that the data is there
-				res := schema.redis_client.Keys(schema.redis_context, "USER_*")
+				ctx := context.Background()
+				redis_client := redis.NewClient(&schema.redis_opt)
+				defer redis_client.Close()
+				res := redis_client.Keys(ctx, "USER_*")
 				err = res.Err()
 				if err != nil {
 					return err

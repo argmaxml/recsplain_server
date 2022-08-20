@@ -423,7 +423,10 @@ func fallbackResponse(popular_items map[int][]string, message string, partition_
 	}
 }
 func (schema Schema) get_user_history(user_id string) ([]string, error) {
-	res := schema.redis_client.LRange(schema.redis_context, "USER_"+user_id, 0, -1)
+	var ctx = context.Background()
+	redis_client := redis.NewClient(&schema.redis_opt)
+	defer redis_client.Close()
+	res := redis_client.LRange(ctx, "USER_"+user_id, 0, -1)
 	if res.Err() != nil {
 		return make([]string, 0), res.Err()
 	}
@@ -431,14 +434,17 @@ func (schema Schema) get_user_history(user_id string) ([]string, error) {
 }
 
 func (schema Schema) calc_popular_items(partitioned_records map[int][]Record) map[int][]string {
-	user_keys := schema.redis_client.Keys(schema.redis_context, "USER_*").Val()
+	var ctx = context.Background()
+	redis_client := redis.NewClient(&schema.redis_opt)
+	user_keys := redis_client.Keys(ctx, "USER_*").Val()
+	defer redis_client.Close()
 	user_data := make(map[string][]string)
 	for _, user_key := range user_keys {
 		user_id := user_key[5:]
-		user_data[user_id] = schema.redis_client.LRange(schema.redis_context, user_key, 0, -1).Val()
+		user_data[user_id] = redis_client.LRange(ctx, user_key, 0, -1).Val()
 	}
 
-	if user_data == nil || len(user_data) == 0 {
+	if len(user_data) == 0 {
 		//No user data, so no popular items - return something
 		ret := make(map[int][]string)
 		ret[0] = make([]string, 0)
@@ -521,15 +527,18 @@ func main() {
 	}
 	credentials := make(map[string]string)
 	err = json.Unmarshal(credentials_json, &credentials)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	var ctx = context.Background()
 	redis_db, _ := strconv.Atoi(credentials["redis_db"])
-	rdb := redis.NewClient(&redis.Options{
+	redis_opt := redis.Options{
 		Addr:     credentials["redis_addr"],
 		Password: credentials["redis_password"],
 		DB:       redis_db,
-	})
+	}
 
+	// var ctx = context.Background()
 	// fmt.Println(rdb.Do(ctx, "FT.CREATE", "vec_sim", "SCHEMA", "vector_field", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC",
 	// 	"L2", "INITIAL_CAP", "1000", "M", "40", "EF_CONSTRUCTION", "250", "EF_RUNTIME", "20").String())
 
@@ -575,8 +584,7 @@ func main() {
 	}
 
 	//Set all the requried databases on the schema
-	schema.redis_client = rdb
-	schema.redis_context = ctx
+	schema.redis_opt = redis_opt
 	//TODO:
 	schema.DB = nil
 	start_server(port, schema, variants, indices, item_lookup, partitioned_records)
