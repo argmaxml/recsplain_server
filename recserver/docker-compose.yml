@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  recserver:
+    build: .
+    ports:
+      - "8088:8088"
+    depends_on:
+      - redis
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
