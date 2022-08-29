@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/DataIntelligenceCrew/go-faiss"
-	"github.com/bluele/gcache"
+	"database/sql"
+
+	"github.com/go-redis/redis/v9"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -19,6 +20,8 @@ type Schema struct {
 	Partitions     [][]string
 	PartitionMap   map[string]int
 	WeightOverride []WeightOverride `json:"weight_override"`
+	DB             *sql.DB
+	redis_opt      redis.Options
 }
 
 type Filter struct {
@@ -96,8 +99,3 @@ type ItemInfo struct {
 	Data           map[string]string `json:"data"`
 }
 
-type IndexCache struct {
-	cache    gcache.Cache
-	array    []faiss.Index
-	useCache bool
-}

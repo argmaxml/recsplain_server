@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -13,19 +15,19 @@ import (
 	"time"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
-	"github.com/bluele/gcache"
+	"github.com/go-redis/redis/v9"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/template/html"
 	"gonum.org/v1/gonum/mat"
 )
 
-func start_server(port int, schema Schema, variants []Variant, indices IndexCache, item_lookup ItemLookup, partitioned_records map[int][]Record, user_data map[string][]string) {
+func start_server(port int, schema Schema, variants []Variant, indices []faiss.Index, item_lookup ItemLookup, partitioned_records map[int][]Record) {
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
 
 	var popular_items map[int][]string
-	popular_items = calc_popular_items(partitioned_records, user_data)
+	popular_items = schema.calc_popular_items(partitioned_records)
 
 	var faiss_index faiss.Index
 	app.Get("/npy/*", func(c *fiber.Ctx) error {
@@ -69,29 +71,26 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 
 	app.Get("/reload_items", func(c *fiber.Ctx) error {
 		partitioned_records, item_lookup, _ = schema.pull_item_data(variants)
-		popular_items = calc_popular_items(partitioned_records, user_data)
+		popular_items = schema.calc_popular_items(partitioned_records)
 		os.RemoveAll("indices")
 		schema.index_partitions(partitioned_records)
 		return c.SendString("{\"Status\": \"OK\"}")
 	})
 
 	app.Get("/reload_users", func(c *fiber.Ctx) error {
-		var err error
-		if user_data == nil {
-			return c.SendString("User history not available in sources list")
-		}
-		user_data, err = schema.pull_user_data()
+		err := schema.pull_user_data()
 		if err != nil {
 			return c.SendString(err.Error())
 		}
-		popular_items = calc_popular_items(partitioned_records, user_data)
+		popular_items = schema.calc_popular_items(partitioned_records)
 		return c.SendString("{\"Status\": \"OK\"}")
 	})
 
 	app.Get("/user/*", func(c *fiber.Ctx) error {
+		var err error
 		user_id := c.Params("*")
-		user_history, found := user_data[user_id]
-		if !found {
+		user_history, err := schema.get_user_history(user_id)
+		if err != nil {
 			return c.SendString("{\"Status\": \"User not found\"}")
 		}
 		response := struct {
@@ -140,6 +139,8 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/popular_items/*", func(c *fiber.Ctx) error {
+		//convert string to int
+
 		partition_number, err := strconv.Atoi(c.Params("*"))
 		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
 			var found bool
@@ -220,8 +221,8 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			}
 			encoded = schema.encode(payload.Query)
 		}
-		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
-		if err != nil {
+		faiss_index = indices[partition_idx]
+		if partition_idx < 0 || partition_idx >= len(indices) {
 			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
 		distances, ids, err := faiss_index.Search(encoded, int64(k))
@@ -280,10 +281,10 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 
 		if payload.UserId != "" {
 			//Override user history from the id, if provided
-			if user_data == nil {
+			payload.History, err = schema.get_user_history(payload.UserId)
+			if err != nil {
 				return c.JSON(fallbackResponse(popular_items, "User history not available in sources list", partition_idx, k))
 			}
-			payload.History = user_data[payload.UserId]
 		}
 		// If user had no history
 		if len(payload.History) == 0 {
@@ -308,8 +309,8 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			}
 		}
 
-		faiss_index, err = indices.faiss_index_from_cache(partition_idx)
-		if err != nil {
+		faiss_index = indices[partition_idx]
+		if partition_idx < 0 || partition_idx >= len(indices) {
 			return c.JSON(fallbackResponse(popular_items, err.Error(), partition_idx, k))
 		}
 		distances, ids, err := faiss_index.Search(user_vec, int64(k))
@@ -442,9 +443,30 @@ func fallbackResponse(popular_items map[int][]string, message string, partition_
 		Timestamp:    time.Now().Unix(),
 	}
 }
+func (schema Schema) get_user_history(user_id string) ([]string, error) {
+	var ctx = context.Background()
+	redis_client := redis.NewClient(&schema.redis_opt)
+	defer redis_client.Close()
+	res := redis_client.LRange(ctx, "USER_"+user_id, 0, -1)
+	if res.Err() != nil {
+		return make([]string, 0), res.Err()
+	}
+	return res.Val(), nil
+}
 
-func calc_popular_items(partitioned_records map[int][]Record, user_data map[string][]string) map[int][]string {
-	if user_data == nil {
+func (schema Schema) calc_popular_items(partitioned_records map[int][]Record) map[int][]string {
+	fmt.Println("Calculating popular items")
+	var ctx = context.Background()
+	redis_client := redis.NewClient(&schema.redis_opt)
+	user_keys := redis_client.Keys(ctx, "USER_*").Val()
+	defer redis_client.Close()
+	user_data := make(map[string][]string)
+	for _, user_key := range user_keys {
+		user_id := user_key[5:]
+		user_data[user_id] = redis_client.LRange(ctx, user_key, 0, -1).Val()
+	}
+
+	if len(user_data) == 0 {
 		//No user data, so no popular items - return something
 		ret := make(map[int][]string)
 		ret[0] = make([]string, 0)
@@ -510,25 +532,45 @@ func calc_popular_items(partitioned_records map[int][]Record, user_data map[stri
 }
 
 func main() {
-	var useCache bool
 	var port int
 	var schema_file string
 	var variants_file string
-	flag.BoolVar(&useCache, "cache", false, "use cache")
+	var credentials_file string
 	flag.IntVar(&port, "port", 8088, "port to listen on")
 	flag.StringVar(&schema_file, "schema", "schema.json", "Schema file name")
 	flag.StringVar(&variants_file, "variants", "variants.json", "Variants file name")
+	flag.StringVar(&credentials_file, "credentials", "credentials.json", "Credentials file name")
 	flag.Parse()
+
+	// read json file
+	credentials_json, err := ioutil.ReadFile(credentials_file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	credentials := make(map[string]string)
+	err = json.Unmarshal(credentials_json, &credentials)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	redis_db, _ := strconv.Atoi(credentials["redis_db"])
+	redis_opt := redis.Options{
+		Addr:     credentials["redis_addr"],
+		Password: credentials["redis_password"],
+		DB:       redis_db,
+	}
+
+	// var ctx = context.Background()
+	// fmt.Println(rdb.Do(ctx, "FT.CREATE", "vec_sim", "SCHEMA", "vector_field", "VECTOR", "HNSW", "14", "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC",
+	// 	"L2", "INITIAL_CAP", "1000", "M", "40", "EF_CONSTRUCTION", "250", "EF_RUNTIME", "20").String())
 
 	schema, variants, err := read_schema(schema_file, variants_file)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var cached_indices gcache.Cache
 	var indices []faiss.Index
 	var partitioned_records map[int][]Record
-	var user_data map[string][]string
 
 	item_lookup := ItemLookup{
 		id2label:        make([]string, 0),
@@ -539,32 +581,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	user_data, err = schema.pull_user_data()
+	err = schema.pull_user_data()
 	if err != nil {
 		log.Println(err)
 	}
 
 	schema.index_partitions(partitioned_records)
 
-	if useCache {
-		cached_indices = gcache.New(32).
-			LFU().
-			LoaderFunc(func(key interface{}) (interface{}, error) {
-				ind, err := faiss.ReadIndex(fmt.Sprintf("./indices/%d", key), 0)
-				return *ind, err
-			}).
-			EvictedFunc(func(key, value interface{}) {
-				value.(faiss.Index).Delete()
-			}).
-			Build()
-	} else {
-		indices = make([]faiss.Index, len(schema.Partitions))
-		for i, _ := range schema.Partitions {
-			indices[i], err = faiss.ReadIndex(fmt.Sprintf("./indices/%d", i), 0)
-			if err != nil {
-				fmt.Println(err)
-				indices[i] = nil
-			}
+	indices = make([]faiss.Index, len(schema.Partitions))
+	for i, _ := range schema.Partitions {
+		indices[i], err = faiss.ReadIndex(fmt.Sprintf("./indices/%d", i), 0)
+		if err != nil {
+			fmt.Println(err)
+			indices[i] = nil
 		}
 	}
 
@@ -575,10 +604,10 @@ func main() {
 			go poll_endpoint(fmt.Sprintf("http://localhost:%d/reload_"+src.Record, port), src.RefreshRate)
 		}
 	}
-	index_dict := IndexCache{
-		cache:    cached_indices,
-		array:    indices,
-		useCache: useCache,
-	}
-	start_server(port, schema, variants, index_dict, item_lookup, partitioned_records, user_data)
+
+	//Set all the requried databases on the schema
+	schema.redis_opt = redis_opt
+	//TODO:
+	schema.DB = nil
+	start_server(port, schema, variants, indices, item_lookup, partitioned_records)
 }

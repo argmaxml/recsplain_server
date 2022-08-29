@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/DataIntelligenceCrew/go-faiss"
+	"github.com/go-redis/redis/v9"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -70,6 +73,22 @@ func (schema Schema) read_partitioned_csv(filename string, variants []Variant) (
 	}
 	item_lookup.id2label = id2label
 	return partition2records, item_lookup, nil
+}
+
+func (schema Schema) read_partitioned_db(connection_string string, variants []Variant) (map[int][]Record, ItemLookup, error) {
+	//connecting database
+	db_vendor := strings.SplitN(connection_string, "://", 2)[0]
+	specific_connection_string := strings.SplitN(connection_string, "://", 2)[0]
+	db, err := sql.Open(db_vendor, specific_connection_string)
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	defer db.Close()
+
+	//TODO: implement
+	return nil, ItemLookup{}, nil
 }
 
 func (schema Schema) index_partitions(records map[int][]Record) {
@@ -137,6 +156,7 @@ func (schema Schema) index_partitions(records map[int][]Record) {
 }
 
 func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemLookup, error) {
+	fmt.Println("Pulling Item Data")
 	var item_lookup ItemLookup
 	var partitioned_records map[int][]Record
 	var err error
@@ -145,6 +165,12 @@ func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemL
 		if strings.ToLower(src.Record) == "items" {
 			if src.Type == "csv" {
 				partitioned_records, item_lookup, err = schema.read_partitioned_csv(src.Path, variants)
+				if err != nil {
+					return nil, ItemLookup{}, err
+				}
+				found_item_source = true
+			} else if src.Type == "sql" {
+				partitioned_records, item_lookup, err = schema.read_partitioned_db(src.Query, variants)
 				if err != nil {
 					return nil, ItemLookup{}, err
 				}
@@ -158,25 +184,57 @@ func (schema Schema) pull_item_data(variants []Variant) (map[int][]Record, ItemL
 	return partitioned_records, item_lookup, err
 }
 
-func (schema Schema) pull_user_data() (map[string][]string, error) {
-	var user_data map[string][]string
+func (schema Schema) pull_user_data() error {
+	fmt.Println("Pulling User data")
 	var err error
 	found_user_source := false
 	for _, src := range schema.Sources {
 		if strings.ToLower(src.Record) == "users" {
 			if src.Type == "csv" {
-				user_data, err = schema.read_user_csv(src.Path, src.Query)
+				user_data, err := schema.read_user_csv(src.Path, src.Query)
 				if err != nil {
-					return nil, err
+					return err
 				}
+				// Feed data to redis
+				ctx := context.Background()
+				redis_client := redis.NewClient(&schema.redis_opt)
+				defer redis_client.Close()
+				for user_id, user_history := range user_data {
+					redis_key := "USER_" + user_id
+					var user_history_interface []interface{}
+					for _, item := range user_history {
+						user_history_interface = append(user_history_interface, item)
+					}
+					// redis_client.Del(ctx, redis_key)
+					// redis_client.RPush(ctx, redis_key, user_history_interface...)
+					go func(redis_key string, redis_list []interface{}) {
+						redis_client.Del(ctx, redis_key)
+						redis_client.RPush(ctx, redis_key, redis_list...)
+						// for _, item_id := range redis_list {
+						// 	redis_client.RPush(ctx, redis_key, item_id)
+						// }
+					}(redis_key, user_history_interface)
+				}
+
 				found_user_source = true
+			} else if src.Type == "redis" {
+				// Only verify that the data is there
+				ctx := context.Background()
+				redis_client := redis.NewClient(&schema.redis_opt)
+				defer redis_client.Close()
+				res := redis_client.Keys(ctx, "USER_*")
+				err = res.Err()
+				if err != nil {
+					return err
+				}
+				found_user_source = len(res.Val()) > 0
 			}
 		}
 	}
 	if !found_user_source {
-		return nil, errors.New("no user source found")
+		return errors.New("no user source found")
 	}
-	return user_data, err
+	return err
 }
 
 func (schema Schema) read_user_csv(filename string, history_col string) (map[string][]string, error) {
@@ -465,27 +523,6 @@ func (schema Schema) reconstruct(partitioned_records map[int][]Record, id int64,
 		}
 	}
 	return reconstructed
-}
-
-func (c IndexCache) faiss_index_from_cache(index int) (faiss.Index, error) {
-	var err error
-	if index < 0 {
-		err = errors.New(fmt.Sprintf("Index %d not found", index))
-		return nil, err
-	}
-	if c.useCache {
-		faiss_interface, err := c.cache.Get(index)
-		if err != nil {
-			return nil, err
-		}
-		return faiss_interface.(faiss.Index), nil
-	} else {
-		ret := c.array[index]
-		if ret == nil {
-			err = errors.New(fmt.Sprintf("Index %d not found", index))
-		}
-		return ret, err
-	}
 }
 
 func pseudo_random_variant(user_id string, variants []Variant) string {
