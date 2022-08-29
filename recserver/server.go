@@ -105,6 +105,23 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 		return c.JSON(response)
 	})
 
+	app.Get("/item/*", func(c *fiber.Ctx) error {
+		item_lbl := c.Params("*")
+		items_found := make([]ItemInfo, 0)
+		for partition_idx, partition := range partitioned_records {
+			for _, record := range partition {
+				if record.Label == item_lbl {
+					items_found = append(items_found, ItemInfo{
+						PartitionIndex: partition_idx,
+						Id:             record.Id,
+						Data:           zip(record.Fields, record.Values),
+					})
+				}
+			}
+		}
+		return c.JSON(items_found)
+	})
+
 	app.Get("/items/*", func(c *fiber.Ctx) error {
 		partition_number, err := strconv.Atoi(c.Params("*"))
 		if err != nil || partition_number < 0 || partition_number >= len(schema.Partitions) {
@@ -190,7 +207,8 @@ func start_server(port int, schema Schema, variants []Variant, indices []faiss.I
 			var found bool
 			partition_idx, found = item_lookup.label2partition[variant+"~"+payload.ItemId]
 			if !found {
-				return c.JSON(fallbackResponse(popular_items, "Item not found", -1, k))
+				partition_idx = schema.partition_number(payload.Query, variant)
+				return c.JSON(fallbackResponse(popular_items, "Item not found", partition_idx, k))
 			}
 			encoded = schema.reconstruct(partitioned_records, id, partition_idx)
 			if encoded == nil {
