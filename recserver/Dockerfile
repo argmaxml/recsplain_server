@@ -22,7 +22,7 @@ RUN cmake -B build . -DFAISS_ENABLE_GPU=OFF -DBUILD_SHARED_LIBS=ON -DFAISS_ENABL
     && cp build/c_api/libfaiss_c.so /usr/lib
 
 WORKDIR /root
-RUN git clone https://github.com/argmaxml/recsplain_server
+RUN git clone -b redis https://github.com/argmaxml/recsplain_server
 WORKDIR /root/recsplain_server/recserver
 RUN go build . && mv recserver /root/ && mkdir /root/views && cp run.sh views/index.html /root/views/ && cp run.sh /root/
 WORKDIR /root
