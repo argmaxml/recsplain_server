@@ -87,3 +87,9 @@ type Variant struct {
 	Percentage float64            `json:"percentage"`
 	Weights    map[string]float64 `json:"weights"`
 }
+
+type PartitionInfo struct {
+	Count int `json:"count"`
+	Index int `json:"index"`
+}
+
