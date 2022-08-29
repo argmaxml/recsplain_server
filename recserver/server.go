@@ -43,14 +43,18 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/partitions", func(c *fiber.Ctx) error {
-		response := make(map[string](map[string]int))
+		response := make(map[string](map[string]PartitionInfo))
 		for _, variant := range variants {
-			response[variant.Name] = make(map[string]int)
+			response[variant.Name] = make(map[string]PartitionInfo)
 		}
 		for partition_idx, partition := range partitioned_records {
 			variant := schema.Partitions[partition_idx][0]
 			key := strings.Join(schema.Partitions[partition_idx][1:], ",")
-			response[variant][key] = len(partition)
+			info := PartitionInfo{
+				Count: len(partition),
+				Index: partition_idx,
+			}
+			response[variant][key] = info
 		}
 		return c.JSON(response)
 	})
@@ -60,7 +64,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 	})
 
 	app.Get("/version", func(c *fiber.Ctx) error {
-		return c.SendString("202207262032")
+		return c.SendString("202208282335")
 	})
 
 	app.Get("/reload_items", func(c *fiber.Ctx) error {

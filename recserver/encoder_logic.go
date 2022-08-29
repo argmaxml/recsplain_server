@@ -311,6 +311,9 @@ func read_schema(schema_file string, variants_file string) (Schema, []Variant, e
 	schema.PartitionMap = make(map[string]int)
 	for i := 0; i < len(schema.Partitions); i++ {
 		key := strings.Join(schema.Partitions[i], "~")
+		if strings.HasPrefix(key, "default~") {
+			key = strings.Replace(key, "default~", "~", 1)
+		}
 		schema.PartitionMap[key] = i
 	}
 	return schema, variants, nil
