@@ -90,6 +90,12 @@ type PartitionInfo struct {
 	Index int `json:"index"`
 }
 
+type ItemInfo struct {
+	Id             int               `json:"id_within_partition"`
+	PartitionIndex int               `json:"partition_index"`
+	Data           map[string]string `json:"data"`
+}
+
 type IndexCache struct {
 	cache    gcache.Cache
 	array    []faiss.Index

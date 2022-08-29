@@ -28,9 +28,14 @@ func (schema Schema) read_partitioned_csv(filename string, variants []Variant) (
 	label2id := make(map[string]int)
 	label2partition := make(map[string]int)
 	partition2records := make(map[int][]Record)
+	var vid string
 	for _, variant := range variants {
 		for _, row := range data {
-			vid := variant.Name + "~" + row[id_num]
+			if variant.Name == "default" {
+				vid = "~" + row[id_num]
+			} else {
+				vid = variant.Name + "~" + row[id_num]
+			}
 			id, found := label2id[vid]
 			if !found {
 				id = len(label2id)
