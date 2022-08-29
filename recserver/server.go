@@ -171,6 +171,7 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 			ItemId  string            `json:"id"`
 			UserId  string            `json:"user_id"`
 			Query   map[string]string `json:"query"`
+			Filters map[string]string `json:"filters"` //optional
 			Explain bool              `json:"explain"`
 			Variant string            `json:"variant"`
 		}{}
@@ -181,6 +182,10 @@ func start_server(port int, schema Schema, variants []Variant, indices IndexCach
 		k, err := strconv.Atoi(c.Params("k"))
 		if err != nil {
 			k = 2
+		}
+		//Just to be consistent with the user_query endpoint
+		if (len(payload.Filters) > 0) && (len(payload.Query) <= 0) {
+			payload.Query = payload.Filters
 		}
 		var partition_idx int
 		var encoded []float32
